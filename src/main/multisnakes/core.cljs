@@ -83,9 +83,7 @@
                  game-id
                  (fn [ctx]
                    (-> ctx
-                       (update
-                        :board
-                        #(snake/play % dir)))))
+                       (update :board #(snake/play % dir)))))
           (recur (<! (timeout 50))))))))
 
 (defmulti handle-request (fn [ws request] (:type request)))
@@ -102,17 +100,8 @@
 
 (defn handle-message-fn [ws]
    (fn [message]
-    (let [m    (read-string message) ;(js->clj (js/JSON.parse message) :keywordize-keys true)
+    (let [m    (read-string message) 
           resp (handle-request ws m)])))
-      ;; (if (= (:type m) "create-game")
-        ;; (let [ctx (create-new-game-context ws (:width m) (:height m))]
-          ;; (println "Create game request received!" m)
-          ;; (add-context! ctx)
-          ;; (reset! board-atom (:board ctx))
-          ;; (reset! closed-atom false)
-          ;; (start-game-updates ws board-atom closed-atom)])))
-;; (println "I got message " message)
-;; (. ws (send (str "I got this message: " message)))))
 
 (defn handle-close-fn [ws closed?]
   (fn []

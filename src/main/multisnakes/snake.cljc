@@ -16,8 +16,9 @@
 (defprotocol PSnake
   (move [this direction grow?])
   (hit? [this position])
-  (dead? [this]))
-
+  (dead? [this])
+  (get-head [this])
+  (get-tail [this]))
 (defprotocol PBounded
   (in-bounds? [this w h]))
 
@@ -34,6 +35,8 @@
                      (if-not grow?
                        (butlast pos-list)
                        pos-list)))))))
+  (get-head [this] (first positions))
+  (get-tail [this] (rest positions))
   (hit? [this position]
     ((set positions) position))
   (dead? [this]
@@ -44,6 +47,7 @@
   Object
   (toString [this]
     (str "#Snake" (into {} (for [[k v] this] [k v])))))
+
 (defn create-snake
   ([positions]
 
@@ -82,6 +86,7 @@
   (game-over? [this] (dead? snake))
   Object
   (toString [this] (str "#Board" (into {} (for [[k v] this] [k v])))))
+
 (defn create-board
   ([w h snake target]
    (map->Board {:width w
@@ -117,9 +122,9 @@
       :left  (drop 1
                    (for [i (range)] [(- x i) y])))))
 
-(defn safe-dir? [snake direction]
-  (let [p (first (:positions snake))
-        next-pos (first (direction-positions p direction))]
+#_(defn safe-dir? [snake direction]
+   (let [p (first (:positions snake))]
+        next-pos (first (direction-positions p direction))
     (not (contains? (into #{} (:positions snake)) next-pos))))
 
 (defn neighbours [pos]
@@ -130,34 +135,90 @@
 (defn degrees-of-freedom [snake pos]
   (->> (neighbours pos)
        (reduce (fn [res p]
-                 (if-not (snake/hit? snake p)
+                 (if-not (hit? snake p)
                    (inc res)
                    res))
                0)))
 
+(def MAX-AHEAD 50)
+
+(defn positions-ahead [position direction]
+  (take MAX-AHEAD
+        (iterate #(move-position % direction) position)))
+
+(defn danger-distances-by-direction
+  [position dangers]
+  (let [projections
+        (into
+         {}
+         (map
+          #(vector % (positions-ahead position %))
+          directions))]
+    (into {}
+          (map
+           (fn
+             [[dir positions]]
+             [dir
+              (loop [res       0
+                     p         (first positions)
+                     remaining (rest positions)]
+                (if (or (nil? p)
+                        ((set dangers) p))
+                  res
+                  (recur (inc res) (first remaining) (rest remaining))))])
+           projections))))
+
+(def opposite-direction
+  {:up    :down
+   :down  :up
+   :left  :right
+   :right :left})
+
+(def MAX-SEARCH-DEPTH 20)
+
+(defn can-escape?
+  [snake direction]
+  (let []
+    (loop [depth MAX-SEARCH-DEPTH
+           s     [(move snake direction false)]]
+      (let [alives (filter (comp not dead?) s)]
+        (if (empty? alives)
+          false
+          (if (zero? depth)
+            true
+            (recur
+             (dec depth)
+             (flatten (map
+                       (fn [s1]
+                         (filter
+                          (comp not dead?)
+                          (map
+                           (fn [dir]
+                             (move s1 dir false))
+                           directions)))
+                       alives)))))))))
+
 (defn target-directions
   [snake target-position]
-  (let [position (first (:positions snake))
-        [x1 y1]  position
-        [x2 y2]  target-position
-        [dx dy]  [(- x2 x1) (- y2 y1)]
-        opts     [(when (pos? dx) :right)
-                  (when (neg? dx) :left)
-                  (when (pos? dy) :down)
-                  (when (neg? dy) :up)]
-        opts     (filter some?  opts)
-        opts     (filter #(safe-dir? snake %) opts)
-        opts     (if-not (empty? opts)
-                   (reverse
-                    (sort-by
-                     (fn [d]
-                       (degrees-of-freedom snake (move-position position d)))
-                     opts))
-                   (do
-                     (println "gotta choose least worse")
-                     (->> directions
-                          (map))
-                     (filter #(safe-dir? snake %) directions)))]
+  (let [position          (first (:positions snake))
+        dangers           (-> (:positions snake) rest butlast)
+        dangers-distances (danger-distances-by-direction position dangers)
+        [x1 y1]           position
+        [x2 y2]           target-position
+        [dx dy]           [(- x2 x1) (- y2 y1)]
+        opts              [(when (pos? dx) :right)
+                           (when (neg? dx) :left)
+                           (when (pos? dy) :down)
+                           (when (neg? dy) :up)]
+        opts              (filter some?  opts)
+        opts              (filter #(can-escape? snake %)
+                                  opts)
+        opts              (if-not (empty? opts)
+                            opts
+                            (do
+                              (println "gotta choose least worse")
+                              (filter #(can-escape? snake %)
+                                      directions)))]
     opts))
 
 (defn distance [pos1 pos2]

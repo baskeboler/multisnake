@@ -22,13 +22,23 @@
     (.beginPath ctx)
     (.rect ctx (* x cell-w) (* y cell-h) cell-w cell-h)
     (set! (.-fillStyle ctx) color)
-    (.fill ctx)))
-    ;; (set! (.-lineWidth ctx) 0.5)
+    (.fill ctx)
+    (set! (.-lineWidth ctx) 0)))
     ;; (set! (.-strokeStyle ctx) "gray")))
     ;; (.stroke ctx)))
 
+(defn with-color-interpolation [sequence color1 color2]
+  (let [len (count sequence)]
+    (map-indexed #(vector
+                   @(color/as-css
+                     (thi.ng.math.core/mix
+                      color1 color2 (/ %1 len)))
+                   %2)
+                 sequence)))
+     
+
 (defn draw-board [b w h]
-  (let [ctx (. (dom/getElement "board") (getContext "2d"))
+  (let [ctx          (. (dom/getElement "board") (getContext "2d"))
         board-w      (:width b)
         board-h      (:height b)
         cell-w       (/ w board-w)
@@ -36,13 +46,8 @@
         snake-length (count (get-in b [:snake :positions]))]
     (. ctx (clearRect 0 0 w h))
     (doall
-     (doseq [[c   [x y]] (mapv vector
-                               (for [i    (range snake-length)
-                                     :let [q (/ i snake-length)
-                                           red (color/rgba 1.0 1.0 0 1.0)]]
-                                 @(color/as-css (thi.ng.math.core/mix red (color/rgba 0 1.0 0 1.0) q)))
-                               (get-in b [:snake :positions]))]
-       (draw-position ctx [x y] cell-w cell-h c)))
+     (doseq [[c [x y]] (with-color-interpolation (get-in b [:snake :positions]) color/RED color/YELLOW)]
+        (draw-position ctx [x y] cell-w cell-h c)))
     (draw-position ctx (:target-position b)
                    cell-w cell-h "red")))
 
