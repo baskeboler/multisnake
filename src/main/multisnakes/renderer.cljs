@@ -16,6 +16,9 @@
 (defonce board (atom nil))
 (defonce dimensions (atom {:width 30 :height 30 :snake-count 2}))
 
+(def canvas-styles {:width "100%"
+                    :border "solid 1px black"})
+
 (defn draw-position
   [ctx pos cell-w cell-h color]
   (let [[x y] pos]
@@ -36,18 +39,27 @@
                    %2)
                  sequence)))
      
+(def COLORS (repeatedly color/random-rgb))
+(def GRADIENTS (partition 2 COLORS))
 
 (defn draw-board [b w h]
   (let [ctx          (. (dom/getElement "board") (getContext "2d"))
         board-w      (:width b)
         board-h      (:height b)
         cell-w       (/ w board-w)
-        cell-h       (/ h board-h)
-        snake-length (count (get-in b [:snake :positions]))]
+        cell-h       (/ h board-h)]
+        ;; snake-length (count (get-in b [:snake :positions]))]
     (. ctx (clearRect 0 0 w h))
     (doall
-     (doseq [s (vals (:snakes b))]
-       (doseq [[c [x y]] (with-color-interpolation (get-in s [:positions]) color/RED color/YELLOW)]
+     (doseq [[snake-color s] (map
+                              vector
+                              GRADIENTS
+                              (vals (:snakes b)))
+             :let [[color1 color2] snake-color]]
+       (doseq [[c [x y]] (with-color-interpolation
+                           (get-in s [:positions])
+                           color1
+                           color2)]
          (draw-position ctx [x y] cell-w cell-h c))))
     (draw-position ctx (:target-position b)
                    cell-w cell-h "red")))
@@ -60,7 +72,7 @@
       (draw-board b w h))
     :reagent-render
     (fn [b w h]
-      [:canvas#board {:width w :height h :style {:border "solid 1px black"}}])}))
+      [:canvas#board {:width w :height h :style canvas-styles}])}))
 
 (defn handle-message [evt]
   (let [data (read-string {:readers {'multisnakes.snake.Board snake/map->Board
@@ -106,30 +118,39 @@
    "Stop"])
 
 (defn join-game [url]
-  (let [req {:type :join-game
+  (let [req {:type    :join-game
              :game-id @game-id}
-        ws (js/WebSocket. url)]
+        ws  (js/WebSocket. url)]
     (. ws (addEventListener "open" #(send-data ws req)))
-                            ;; #(. ws (send (js/JSON.stringify (clj->js req))))))
     (. ws (addEventListener "message" handle-message))
     ws))
 
+(defn gradient-text
+  [text color1 color2]
+  (let [text (if-not (string? text) (str text) text)]
+    [:span.gradient-text
+     (for [[color3 c] (with-color-interpolation text color1 color2)]
+       ^{:key (str "char-" color3)}
+       [:span {:style {:color color3}}
+        c])]))
+
 (defn main-component []
   [:div.main-component
-   [:h1 "Main component"]
+   [:h1 "snakes de mierda"]
    [:div
     [:table
      [:thead
       [:tr
-       [:th "player"] [:th "score"]]]
+       [:th "la snake"] [:th "los puntos"]]]
      [:tbody
-      (for [[id snake] (:snakes @board)]
+      (for [[[c1 c2] [id snake]] (map vector GRADIENTS (:snakes @board))]
+        ^{:key (str "player-" id)}
         [:tr
-         [:td id]
+         [:td (gradient-text id c1 c2)]
          [:td {:style {:text-align "right"}}
           (count (:positions snake))]])]]]
    (when @game-over?
-     [:div {:style {:color "red"}} "GAME OVER"])
+     [:div {:style {:color "red"}} "SE KEMÓ TOKIO"])
    [:div.buttons
     [start-ws-btn] [stop-ws-btn]]
 

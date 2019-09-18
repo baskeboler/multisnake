@@ -5,11 +5,21 @@
             ["process" :as process]
             [com.stuartsierra.component :as component :refer [start stop]]
             [multisnakes.snake :as snake :refer [Board Snake]]
-            [clojure.core.async :as async :refer [go go-loop <! >! chan timeout]]
+            [cljs.core.async :as async :refer [go go-loop <! >! sliding-buffer chan timeout]]
             [goog.string :as str]
             [cljs.reader :refer [read-string]]))
 (defonce server (atom nil))
 (defonce contexts (atom {}))
+
+
+(defonce ws-response-chan (chan 50))
+
+(defn async-some [pred input-chan]
+  (go-loop []
+    (let [msg (<! input-chan)]
+      (if (pred msg)
+        msg
+        (recur)))))
 
 (defn with-timestamp [obj]
   (assoc obj :timestamp (js/Date.)))
@@ -89,6 +99,8 @@
     (apply concat (map (comp  :positions) ss))))
 
 (defn start-game-updates [game-id]
+  #_(let [port (sliding-buffer 50)]
+     (thread))
   (go-loop [_      (<! (timeout 1000))]
     (send-game-updates game-id)
     (let [ctx     (get-context game-id)
@@ -104,13 +116,15 @@
                      (update :board
                              #(reduce
                                (fn [b s]
-                                 (let [dir (-> (snake/target-directions
-                                                (get-in b [:snakes s])
-                                                (:target-position b)
-                                                (get-blocked-positions b (get-in b [:snakes s])))
-                                               shuffle
-                                               first)]
-                                   (snake/play b s dir)))
+                                 (if-not (snake/dead? (get-in b [:snakes s]) (get-blocked-positions b (get-in b [:snakes s])))
+                                   (let [dir (-> (snake/target-directions
+                                                  (get-in b [:snakes s])
+                                                  (:target-position b)
+                                                  (get-blocked-positions b (get-in b [:snakes s])))
+                                                 shuffle
+                                                 first)]
+                                     (snake/play b s dir))
+                                   b))
                                %
                                (keys (get-in % [:snakes])))))))
         (recur (<! (timeout 50)))))))

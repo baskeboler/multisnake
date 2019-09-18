@@ -1,5 +1,5 @@
-(ns multisnakes.snake
-  )
+(ns multisnakes.snake)
+  
 (def directions #{:up :down :left :right})
 
 (def direction-delta
@@ -12,6 +12,10 @@
   (let [[x y]   pos
         [dx dy] (get direction-delta direction [0 0])]
     [(+ x dx) (+ y dy)]))
+
+(defn get-blocked-positions [b snake]
+  (let [ss (filter #(not= (:id snake) (:id %)) (vals (:snakes b)))]
+    (apply concat (map (comp  :positions) ss))))
 
 (defprotocol PSnake
   (move [this direction grow?])
@@ -45,8 +49,7 @@
     ((set (:positions this )) position))
 
   (dead? [this blocked-positions]
-    (not= (count (concat blocked-positions positions))
-          (count (set (concat blocked-positions positions)))))
+    ((into #{} (concat blocked-positions (get-tail this))) (get-head this)))
 
   PBounded
   (in-bounds? [this w h]
@@ -103,8 +106,10 @@
                     (if need-new-target?
                       (new-target (:width this) (:height this) (:snakes this))
                       target))))))
-  (game-over? [this] ((comp not empty?)
-                      (filter dead? (vals (:snakes this)))))
+  (game-over? [this]
+    (every?
+     #(dead? % (get-blocked-positions this %))
+     (vals (:snakes this))))
   Object
   (toString [this] (str "#Board" (into {} (for [[k v] this] [k v])))))
 
