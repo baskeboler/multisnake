@@ -4,7 +4,6 @@
             ["ws" :as WebSocket]
             ["process" :as process]
             [com.stuartsierra.component :as component :refer [start stop]]
-            [multisnakes.other :as other :refer [some-other-fn]]
             [multisnakes.snake :as snake :refer [Board Snake]]
             [clojure.core.async :as async :refer [go go-loop <! >! chan timeout]]
             [goog.string :as str]
@@ -40,9 +39,29 @@
 (defn create-websocket-server [^js server]
   (new (. ^js WebSocket -Server) (clj->js {:server server})))
 
-(defn create-new-game-context [ws w h]
+(defn random-positions [w h n]
+  (take n
+        (shuffle
+         (for [i (range w)
+               j (range h)]
+           [i j]))))
+
+(defn random-names [n]
+  (repeatedly n str/getRandomString))
+
+(defn random-snakes [w h n]
+  (into
+   {}
+   (map
+    #(vector (:id %) %)
+    (map snake/create-snake
+         (map vector (random-positions w h n))
+         (random-names n)))))
+
+(defn create-new-game-context [ws w h snake-count]
   (let [id    (str/getRandomString)
-        board (snake/create-board w h)]
+        snakes (random-snakes w h snake-count)
+        board (snake/create-board w h snakes)]
     {:id    id
      :board board
      :clients [ws]}))
@@ -65,6 +84,10 @@
 
 (defn update-board [board])
 
+(defn get-blocked-positions [b snake]
+  (let [ss (filter #(not= (:id snake) (:id %)) (vals (:snakes b)))]
+    (apply concat (map (comp  :positions) ss))))
+
 (defn start-game-updates [game-id]
   (go-loop [_      (<! (timeout 1000))]
     (send-game-updates game-id)
@@ -73,23 +96,30 @@
           closed? (zero? (count (:clients ctx)))
           over?   (snake/game-over? board)]
       (when-not (or closed? over?)
-        (let [dir (-> (snake/target-directions
-                       (:snake board)
-                       (:target-position board))
-                      shuffle
-                      first)]
-          (swap! contexts
-                 update
-                 game-id
-                 (fn [ctx]
-                   (-> ctx
-                       (update :board #(snake/play % dir)))))
-          (recur (<! (timeout 50))))))))
+        (swap! contexts
+               update
+               game-id
+               (fn [ctx]
+                 (-> ctx
+                     (update :board
+                             #(reduce
+                               (fn [b s]
+                                 (let [dir (-> (snake/target-directions
+                                                (get-in b [:snakes s])
+                                                (:target-position b)
+                                                (get-blocked-positions b (get-in b [:snakes s])))
+                                               shuffle
+                                               first)]
+                                   (snake/play b s dir)))
+                               %
+                               (keys (get-in % [:snakes])))))))
+        (recur (<! (timeout 50)))))))
 
 (defmulti handle-request (fn [ws request] (:type request)))
 
-(defmethod handle-request  :create-game [ws {:keys [width height]}]
-  (let [ctx (create-new-game-context ws width height)]
+(defmethod handle-request  :create-game
+  [ws {:keys [width height snake-count] :or {width 30 height 30 snake-count 2}}]
+  (let [ctx (create-new-game-context ws width height snake-count)]
     (add-context! ctx)
     (start-game-updates (:id ctx))
     ctx))
@@ -99,8 +129,8 @@
   (swap! contexts update game-id #(update % :clients conj ws)))
 
 (defn handle-message-fn [ws]
-   (fn [message]
-    (let [m    (read-string message) 
+  (fn [message]
+    (let [m    (read-string message)
           resp (handle-request ws m)])))
 
 (defn handle-close-fn [ws closed?]
@@ -110,7 +140,7 @@
     (reset! closed? true)))
 
 (defn handle-connection [^js ws]
-  (let [board       (atom nil)
+  (let [board   (atom nil)
         closed? (atom false)]
     (. ws (on "message" (handle-message-fn ws)))
     (. ws (on "close" (handle-close-fn ws closed?)))))

@@ -1,5 +1,5 @@
-(ns multisnakes.snake)
-
+(ns multisnakes.snake
+  )
 (def directions #{:up :down :left :right})
 
 (def direction-delta
@@ -16,13 +16,14 @@
 (defprotocol PSnake
   (move [this direction grow?])
   (hit? [this position])
-  (dead? [this])
+  (dead? [this blocked-positions])
   (get-head [this])
   (get-tail [this]))
+
 (defprotocol PBounded
   (in-bounds? [this w h]))
 
-(defrecord ^:export Snake [positions]
+(defrecord ^:export Snake [id positions]
   PSnake
   (move [this direction grow?]
     (let [head     (first positions)
@@ -35,68 +36,94 @@
                      (if-not grow?
                        (butlast pos-list)
                        pos-list)))))))
-  (get-head [this] (first positions))
-  (get-tail [this] (rest positions))
+
+  (get-head [this] (first (:positions this)))
+
+  (get-tail [this] (rest (:positions this)))
+
   (hit? [this position]
-    ((set positions) position))
-  (dead? [this]
-    (not= (count positions) (count (set positions))))
+    ((set (:positions this )) position))
+
+  (dead? [this blocked-positions]
+    (not= (count (concat blocked-positions positions))
+          (count (set (concat blocked-positions positions)))))
+
   PBounded
   (in-bounds? [this w h]
-    (every? #(and (< (first %) w) (< (second %) h)) positions))
-  Object
-  (toString [this]
-    (str "#Snake" (into {} (for [[k v] this] [k v])))))
+    (every? #(and (< (first %) w)
+                  (< (second %) h))
+            (:positions this))))
+
+  ;; Object
+  ;; (toString [this]
+    ;; (str "#Snake" (into {} (for [[k v] this] [k v])))))
+(def NEXT-SNAKE-ID (atom 1000))
 
 (defn create-snake
+  ([positions id]
+   (map->Snake
+    {:id id
+     :positions positions}))
   ([positions]
-
-   (->Snake positions))
-  ([] (create-snake [[0 0]])))
+   (create-snake positions (swap! NEXT-SNAKE-ID inc)))
+  ([]
+   (create-snake  [[0 0]])))
 
 (defprotocol PBoard
-  (play [this direction])
+  (play [this snake-id direction])
   (game-over? [this]))
 
 (defn hit-target? [position direction target-position]
   (= (move-position position direction) target-position))
 
-(defn new-target [w h snake]
-  (when-not (= (* w h) (count (:positions snake)))
+
+(def sum (partial reduce +))
+
+(defn new-target
+  [w h snakes]
+  (when-not (= (* w h) (sum  (mapv #(count (:positions %)) (vals snakes))))
     (let [free-positions (->  (for [i     (range w)
                                     j     (range h)
-                                    :when (not (hit? snake [i j]))]
+                                    :when (not-any? #(hit? % [i j])  (vals snakes))]
                                 [i j])
                               shuffle)]
       (first free-positions))))
 
-(defrecord ^:export Board [width height snake target-position]
+(defrecord ^:export Board [width height snakes target-position]
   PBoard
-  (play [this direction]
-    (let [need-new-target? (hit-target? (first (:positions snake))
+  (play [this snake-id direction]
+    (let [snake (get-in this  [:snakes snake-id])
+          need-new-target? (hit-target? (first (:positions snake))
                                         direction
-                                        target-position)]
+                                        (:target-position this))]
       (-> this
-          (update :snake move direction need-new-target?)
+          (update-in [:snakes snake-id] #(move % direction need-new-target?))
           (update :target-position
                   (fn [target]
                     (if need-new-target?
-                      (new-target width height (:snake this))
+                      (new-target (:width this) (:height this) (:snakes this))
                       target))))))
-  (game-over? [this] (dead? snake))
+  (game-over? [this] ((comp not empty?)
+                      (filter dead? (vals (:snakes this)))))
   Object
   (toString [this] (str "#Board" (into {} (for [[k v] this] [k v])))))
 
 (defn create-board
-  ([w h snake target]
+  ([w h snakes target]
    (map->Board {:width w
                 :height h
-                :snake snake
+                :snakes (cond
+                          (map? snakes) snakes
+                          (coll? snakes) (->>
+                                          (for [s snakes]
+                                            [(:id s) s])
+                                          (into {}))
+                          (= Snake (type snakes)) {(:id snakes) snakes})
                 :target-position target}))
-  ([w h snake]
-   (create-board w h snake (new-target w h snake)))
+  ([w h snakes]
+   (create-board w h snakes (new-target w h snakes)))
   ([w h]
-   (create-board w h (create-snake [[0 0]]))))
+   (create-board w h [(create-snake)])))
 
 (defn target-direction
   [position target-position]
@@ -132,8 +159,9 @@
     (for [i [1 -1]
           j [1 -1]]
       [(+ i x) (+ j y)])))
-(defn degrees-of-freedom [snake pos]
-  (->> (neighbours pos)
+
+#_(defn degrees-of-freedom [snake pos]
+   (->> (neighbours pos)
        (reduce (fn [res p]
                  (if-not (hit? snake p)
                    (inc res)
@@ -177,11 +205,11 @@
 (def MAX-SEARCH-DEPTH 20)
 
 (defn can-escape?
-  [snake direction]
+  [snake direction blocked-positions]
   (let []
     (loop [depth MAX-SEARCH-DEPTH
            s     [(move snake direction false)]]
-      (let [alives (filter (comp not dead?) s)]
+      (let [alives (filter (comp not #(dead? % blocked-positions)) s)]
         (if (empty? alives)
           false
           (if (zero? depth)
@@ -191,7 +219,7 @@
              (flatten (map
                        (fn [s1]
                          (filter
-                          (comp not dead?)
+                          (comp not #(dead? % blocked-positions))
                           (map
                            (fn [dir]
                              (move s1 dir false))
@@ -199,25 +227,28 @@
                        alives)))))))))
 
 (defn target-directions
-  [snake target-position]
+  [snake target-position blocked-positions]
   (let [position          (first (:positions snake))
-        dangers           (-> (:positions snake) rest butlast)
+        dangers           (concat
+                           (-> (:positions snake) rest butlast)
+                           blocked-positions)
         dangers-distances (danger-distances-by-direction position dangers)
         [x1 y1]           position
         [x2 y2]           target-position
         [dx dy]           [(- x2 x1) (- y2 y1)]
+        ;; snake (create-snake (concat (:positions snake) blocked-positions))
         opts              [(when (pos? dx) :right)
                            (when (neg? dx) :left)
                            (when (pos? dy) :down)
                            (when (neg? dy) :up)]
         opts              (filter some?  opts)
-        opts              (filter #(can-escape? snake %)
+        opts              (filter #(can-escape? snake % blocked-positions)
                                   opts)
         opts              (if-not (empty? opts)
                             opts
                             (do
                               (println "gotta choose least worse")
-                              (filter #(can-escape? snake %)
+                              (filter #(can-escape? snake % blocked-positions)
                                       directions)))]
     opts))
 
@@ -226,25 +257,29 @@
         [x2 y2] pos2]
     (Math/sqrt (+ (Math/pow (- x2 x1) 2) (Math/pow (- y2 y1) 2)))))
 
-(defn snake-move-decide [snake target-position w h]
-  (let [m       (* w h)
+#_(defn snake-move-decide [snake target-position w h]
+   (let [m       (* w h)]
         p       (first (:positions snake))
         dirs    (map #(vector % (take m (direction-positions p %))) directions)
         dangers (map (fn [[d ds]]
                        (vector d
-                               (any? #(= 1.0 (distance p %)) ds)))
-                     dirs)]
+                               (some? #(= 1.0 (distance p %)) ds)))
+                     dirs)
     dangers))
 
-(defn do-iterations [n]
-  (loop [n n
-         b (create-board 20 20)]
+#_(defn do-iterations [n]
+   (loop [n n]
+         b (create-board 20 20)
     (if (zero? n)
       b
       (recur (dec n)
-             (play b
+             (reduce
+              (fn [b snake-id]
+                (play b snake-id
                    (target-direction
                     (first
-                     (get-in b [:snake :positions]))
-                    (:target-position b)))))))
+                     (get-in b [:snake snake-id :positions]))
+                    (:target-position b))))
+              b
+              (keys (:snakes b)))))))
 

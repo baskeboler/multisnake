@@ -14,7 +14,7 @@
 (defonce game-id (atom nil))
 
 (defonce board (atom nil))
-(defonce dimensions (atom {:width 30 :height 30}))
+(defonce dimensions (atom {:width 30 :height 30 :snake-count 2}))
 
 (defn draw-position
   [ctx pos cell-w cell-h color]
@@ -46,8 +46,9 @@
         snake-length (count (get-in b [:snake :positions]))]
     (. ctx (clearRect 0 0 w h))
     (doall
-     (doseq [[c [x y]] (with-color-interpolation (get-in b [:snake :positions]) color/RED color/YELLOW)]
-        (draw-position ctx [x y] cell-w cell-h c)))
+     (doseq [s (vals (:snakes b))]
+       (doseq [[c [x y]] (with-color-interpolation (get-in s [:positions]) color/RED color/YELLOW)]
+         (draw-position ctx [x y] cell-w cell-h c))))
     (draw-position ctx (:target-position b)
                    cell-w cell-h "red")))
 
@@ -73,10 +74,11 @@
     (reset! game-over? (snake/game-over? b))
     (draw-board b 500 500)))
 
-(defn game-request [w h]
+(defn game-request [w h snake-count]
   {:type   :create-game
    :width  w
-   :height h})
+   :height h
+   :snake-count snake-count})
 
 (defn send-data [ws data]
   (. ws (send (pr-str data))))
@@ -84,14 +86,15 @@
 (defn open-websocket [url]
   (let [ws (js/WebSocket. url)]
     (. ws (addEventListener "open" #(send-data ws (game-request (:width @dimensions)
-                                                                (:height @dimensions)))))
+                                                                (:height @dimensions)
+                                                                (:snake-count @dimensions)))))
 
     (. ws (addEventListener "message" handle-message))
     ws))
 
 (defn start-ws-btn []
   [:button
-   {:on-click #(reset! ws (open-websocket "ws://localhost:8999"))
+   {:on-click #(reset! ws (open-websocket "wss://33eaac41.ngrok.io"))
     :disabled (not= nil @ws)}
    "Start"])
 
@@ -115,7 +118,16 @@
   [:div.main-component
    [:h1 "Main component"]
    [:div
-    (str "Score: " @score)]
+    [:table
+     [:thead
+      [:tr
+       [:th "player"] [:th "score"]]]
+     [:tbody
+      (for [[id snake] (:snakes @board)]
+        [:tr
+         [:td id]
+         [:td {:style {:text-align "right"}}
+          (count (:positions snake))]])]]]
    (when @game-over?
      [:div {:style {:color "red"}} "GAME OVER"])
    [:div.buttons
@@ -129,14 +141,18 @@
     [:input {:on-change   #(swap! dimensions assoc :height (-> % .-target .-value))
              :type        :number
              :placeholder "height"
-             :value       (-> @dimensions :height)}]]
+             :value       (-> @dimensions :height)}]
+    [:input {:on-change   #(swap! dimensions assoc :snake-count (-> % .-target .-value js/Number.parseInt))
+             :type        :number
+             :placeholder "snake count"
+             :value       (-> @dimensions :snake-count)}]]
    [:div.join
-    [:input {:on-change #(reset! game-id (-> % .-target .-value))
-             :value @game-id
-             :type :text
+    [:input {:on-change   #(reset! game-id (-> % .-target .-value))
+             :value       @game-id
+             :type        :text
              :placeholder "Game ID"}]
-    [:button {:type :button
-              :on-click #(reset! ws (join-game "ws://localhost:8999"))}
+    [:button {:type     :button
+              :on-click #(reset! ws (join-game "wss://33eaac41.ngrok.io"))}
      "Join game"]]
    [board-canvas @board 500 500]])
 
