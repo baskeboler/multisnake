@@ -58,9 +58,6 @@
                   (< (second %) h))
             (:positions this))))
 
-  ;; Object
-  ;; (toString [this]
-    ;; (str "#Snake" (into {} (for [[k v] this] [k v])))))
 (def NEXT-SNAKE-ID (atom 1000))
 
 (defn create-snake
@@ -159,24 +156,12 @@
       :left  (drop 1
                    (for [i (range)] [(- x i) y])))))
 
-#_(defn safe-dir? [snake direction]
-   (let [p (first (:positions snake))]
-        next-pos (first (direction-positions p direction))
-    (not (contains? (into #{} (:positions snake)) next-pos))))
-
 (defn neighbours [pos]
   (let [[x y] pos]
     (for [i [1 -1]
           j [1 -1]]
       [(+ i x) (+ j y)])))
 
-#_(defn degrees-of-freedom [snake pos]
-   (->> (neighbours pos)
-       (reduce (fn [res p]
-                 (if-not (hit? snake p)
-                   (inc res)
-                   res))
-               0)))
 
 (def MAX-AHEAD 50)
 
@@ -275,29 +260,5 @@
   (->> (for [i (range w) j (range h) :when (empty? ((set taken) [i j]))] [i j])
        shuffle
        first))
-#_(defn snake-move-decide [snake target-position w h]
-   (let [m       (* w h)]
-        p       (first (:positions snake))
-        dirs    (map #(vector % (take m (direction-positions p %))) directions)
-        dangers (map (fn [[d ds]]
-                       (vector d
-                               (some? #(= 1.0 (distance p %)) ds)))
-                     dirs)
-    dangers))
 
-#_(defn do-iterations [n]
-   (loop [n n]
-         b (create-board 20 20)
-    (if (zero? n)
-      b
-      (recur (dec n)
-             (reduce
-              (fn [b snake-id]
-                (play b snake-id
-                   (target-direction
-                    (first
-                     (get-in b [:snake snake-id :positions]))
-                    (:target-position b))))
-              b
-              (keys (:snakes b)))))))
 

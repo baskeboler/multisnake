@@ -9,12 +9,7 @@
             [clojure.edn :refer [read-string]]
             [garden.core :as g]
             [goog.string :as str]
-            ;; ["@material-ui/core" :as mui]
-            ;; ["@material-ui/core/styles" :refer [createMuiTheme withStyles]]
-            ;; ["@material-ui/core/colors" :as mui-colors]
-            ;; ["@material-ui/icons" :as mui-icons]
             [goog.object :as gobj]))
-            ;; [cljs.reader :refer [read-string]]))
 
 
 (set! *warn-on-infer* true)
@@ -24,45 +19,6 @@
   (let [^js/HTMLInputElement el (.-target e)]
     (.-value el)))
 
-;; (def ^:private input-component
-;;   (reagent/reactify-component
-;;    (fn [props]
-;;      [:input (-> props
-;;                  (assoc :ref (:inputRef props))
-;;                  (dissoc :inputRef))])))
-
-;; (def ^:private textarea-component
-;;   (reagent/reactify-component
-;;    (fn [props]
-;;      [:textarea (-> props
-;;                     (assoc :ref (:inputRef props))
-;;                     (dissoc :inputRef))])))
-
-;; (defn text-field [props & children]
-;;   (let [props (-> props
-;;                   (assoc-in [:InputProps :inputComponent]
-;;                             (cond
-;;                               (and (:multiline props) (:rows props) (not (:maxRows props)))
-;;                               textarea-component
-;;                               (:multiline props)
-;;                               nil
-;;                               (:select props)
-;;                               nil
-;;                               :else input-component))
-;;                   (rtpl/convert-prop-value))]
-;;     (apply reagent/create-element mui/TextField props (map reagent/as-element children))))
-
-;; (def custom-theme
-;;   (createMuiTheme
-;;    #js {:palette #js {:primary #js {:main (gobj/get (.-red ^js/Mui.Colors mui-colors) 100)}}}))
-
-;; (defn custom-styles [^js/Mui.Theme theme]
-;;   #js {:button    #js {:margin (.spacing theme 1)}
-;;        :textField #js {:width       200
-;;                        :marginLeft  (.spacing theme 1)
-;;                        :marginRight (.spacing theme 1)}})
-
-;; (def with-custom-styles (withStyles custom-styles))
 (defonce ws (atom nil))
 (defonce ws-connected? (reagent.ratom/make-reaction #(some? @ws)))
 
@@ -96,8 +52,7 @@
     (set! (.-fillStyle ctx) color)
     (.fill ctx)
     (set! (.-lineWidth ctx) 0)))
-    ;; (set! (.-strokeStyle ctx) "gray")))
-    ;; (.stroke ctx)))
+
 (defn draw-target
   [ctx pos cell-w cell-h color]
   (let [[x y] pos]
@@ -322,79 +277,6 @@
        [:span {:style {:color color3}}
         c])]))
 
-#_(defn ^:export variables-form
-    [{:keys [classes] :as props}]
-    [:> mui/Grid
-     {:container true
-      :direction "column"
-      :spacing   2}
-
-     [:> mui/Grid
-      {:container true
-       :direction "row"
-       :spacing   2}
-      [:> mui/Grid {:item true}
-       [text-field
-        {:value       (-> @game-opts :width)
-         :label       "Width"
-         :placeholder "Enter board width"
-         :helper-text "The grid width"
-         :type        :number
-         :class       (.-textField classes)
-         :on-change   #(swap! game-opts assoc :width (event-value %))}]]
-         ;; :inputRef    #(js/console.log "input-ref" %)}]]
-      [:> mui/Grid {:item true}
-       [text-field
-        {:value       (-> @game-opts :height)
-         :label       "Height"
-         :type        :number
-         :placeholder "Enter board height"
-         :helper-text "The grid height"
-         :class       (.-textField classes)
-         :on-change   #(swap! game-opts assoc :height (event-value %))}]]
-         ;; :inputRef    #(js/console.log "input-ref" %)}]]
-      [:> mui/Grid {:item true}
-       [text-field
-        {:value       (-> @game-opts :snake-count)
-         :type        :number
-         :label       "Number of snakes"
-         :placeholder "Enter the number of snakes"
-         :helper-text "The number of fucking snakes"
-         :class       (.-textField classes)
-         :on-change   #(swap! game-opts assoc :snake-count (event-value %))}]]]
-         ;; :inputRef    #(js/console.log "input-ref" %)}]]]
-     [:> mui/Grid
-      {:container true
-       :direction "row"
-       :spacing   2}
-      [:> mui/Grid {:item true}
-       [:> mui/Button
-        {:variant  "outlined"
-         :color    "primary"
-         :class    (.-button classes)
-         :disabled @ws-connected?
-         :on-click #(reset! ws (open-websocket ws-endpoint))}
-        "Start"]]
-      [:> mui/Grid {:item true}
-       [:> mui/Button
-        {:variant  "contained"
-         :color    "secondary"
-         :class    (.-button classes)
-         :on-click #(do (. @ws (close))
-                        (reset! ws nil)
-                        (reset! board nil))
-         :disabled (not @ws-connected?)}
-        "Stop"]]
-      [:> mui/Grid {:item true}
-       [:> mui/Button
-        {:variant  "contained"
-         :color    "secondary"
-         :class    (.-button classes)
-         :on-click #(send-data @ws (new-target-request @game-id))
-         :disabled (not @ws-connected?)}
-        "New Target"]]]])
-        ;; [:> mui-icons/PlayArrow]]]]])
-
 (defn score-table
   []
   [:div.score-table
@@ -480,43 +362,6 @@
       [stop-ws-btn]
       [new-target-btn]]]
     [board-canvas @board 500 500]]])
-    ;; [:table
-    ;;  [:thead
-    ;;   [:tr
-    ;;    [:th "la snake"] [:th "los puntos"]] [:th "Dead?"]]
-    ;;  [:tbody
-    ;;   (for [[[c1 c2] [id snake]] (map vector GRADIENTS (:snakes @board))]
-    ;;     ^{:key (str "player-" id)}
-    ;;     [:tr
-    ;;      [:td (gradient-text id c1 c2)]
-    ;;      [:td {:style {:text-align "right"}}
-    ;;       (count (:positions snake))]
-    ;;      [:td (if (:dead? snake) "YES" "NO")]])]]]
-
-   ;; [:<>
-   ;;  [:> mui/CssBaseline]
-   ;;  [:> mui/MuiThemeProvider
-   ;;   {:theme custom-theme}
-   ;;   [:> mui/Grid
-   ;;    {:container true
-   ;;     :direction "row"
-   ;;     :justify   "center"}
-   ;;    [:> mui/Grid {:item true
-   ;;                  :xs   6}]
-   ;;     ;; [:> (with-custom-styles (reagent/reactify-component))
-
-   ;;    [:> mui/Grid {:item true
-   ;;                  :xs   6}
-   ;;     [:> (with-custom-styles (reagent/reactify-component variables-form))]]]]]
-   ;; [:div.join
-   ;;  [:input {:on-change   #(reset! game-id (-> % .-target .-value))
-   ;;           :value       @game-id
-   ;;           :type        :text
-   ;;           :placeholder "Game ID"}]
-   ;;  [:button {:type     :button
-   ;;            :on-click #(reset! ws (join-game ws-endpoint))}
-   ;;   "Join game"]]
-
 
 (defn init! []
   (reagent/render
