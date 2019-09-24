@@ -49,7 +49,8 @@
     ((set (:positions this )) position))
 
   (dead? [this blocked-positions]
-    ((into #{} (concat blocked-positions (get-tail this))) (get-head this)))
+    (or (some-> this :dead?)
+        ((into #{} (concat blocked-positions (get-tail this))) (get-head this))))
 
   PBounded
   (in-bounds? [this w h]
@@ -98,9 +99,13 @@
     (let [snake (get-in this  [:snakes snake-id])
           need-new-target? (hit-target? (first (:positions snake))
                                         direction
-                                        (:target-position this))]
+                                        (:target-position this))
+          new-snake (move snake direction need-new-target?)
+          new-snake (if (dead? new-snake (get-blocked-positions this new-snake))
+                      (assoc new-snake :dead? true)
+                      new-snake)]
       (-> this
-          (update-in [:snakes snake-id] #(move % direction need-new-target?))
+          (assoc-in [:snakes snake-id] new-snake)
           (update :target-position
                   (fn [target]
                     (if need-new-target?
@@ -262,6 +267,14 @@
         [x2 y2] pos2]
     (Math/sqrt (+ (Math/pow (- x2 x1) 2) (Math/pow (- y2 y1) 2)))))
 
+(defn positions-taken [board]
+  (let [ss (vals (:snakes board))]
+    (apply concat (map :positions ss))))
+
+(defn random-position [w h taken]
+  (->> (for [i (range w) j (range h) :when (empty? ((set taken) [i j]))] [i j])
+       shuffle
+       first))
 #_(defn snake-move-decide [snake target-position w h]
    (let [m       (* w h)]
         p       (first (:positions snake))

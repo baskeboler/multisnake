@@ -25,7 +25,7 @@
   (assoc obj :timestamp (js/Date.)))
 
 (defn add-context! [ctx]
-  (swap! contexts assoc (:id ctx) ctx))
+  (swap! contexts assoc (:game-id ctx) ctx))
 
 (defn get-context [id]
   (get @contexts id))
@@ -65,14 +65,16 @@
    (map
     #(vector (:id %) %)
     (map snake/create-snake
-         (map vector (random-positions w h n))
+         (map vector
+              (random-positions w h n))
          (random-names n)))))
 
 (defn create-new-game-context [ws w h snake-count]
   (let [id    (str/getRandomString)
         snakes (random-snakes w h snake-count)
         board (snake/create-board w h snakes)]
-    {:id    id
+    {:game-id    id
+     :start (js/Date.)
      :board board
      :clients [ws]}))
 
@@ -129,23 +131,59 @@
                                (keys (get-in % [:snakes])))))))
         (recur (<! (timeout 50)))))))
 
-(defmulti handle-request (fn [ws request] (:type request)))
+(defmulti handle-request (fn [ws request]
+                           (println "Got request: " request)
+                           (:type request)))
 
 (defmethod handle-request  :create-game
-  [ws {:keys [width height snake-count] :or {width 30 height 30 snake-count 2}}]
+  [ws {:keys [width height snake-count] :or {width 30 height 30 snake-count 0}}]
   (let [ctx (create-new-game-context ws width height snake-count)]
     (add-context! ctx)
-    (start-game-updates (:id ctx))
-    ctx))
+    ;; (start-game-updates (:id ctx))
+    (dissoc ctx :clients)))
 
+(defmethod handle-request :start-game
+  [ws {:keys [game-id]}]
+  (start-game-updates game-id)
+  (-> (get @contexts game-id)
+      (dissoc :clients))
+  nil)
+(defmethod handle-request :add-snake
+  [ws {:keys [game-id snake-id]}]
+  (swap! contexts update game-id
+         (fn [ctx]
+           (let [w (get-in ctx [:board :width])
+                 h (get-in ctx [:board :height])
+                 taken (snake/positions-taken (:board ctx))]
+             (-> ctx
+                 (update-in [:board :snakes]
+                            (fn [snakes]
+                              (-> snakes
+                                  (assoc snake-id (snake/create-snake (vector (snake/random-position w h taken)) snake-id)))))))))
+  (->
+   (get @contexts game-id)
+   (dissoc :clients)))
 (defmethod handle-request :join-game [ws {:keys [game-id]}]
   (println "Join game: " game-id)
-  (swap! contexts update game-id #(update % :clients conj ws)))
+  (swap! contexts update game-id #(update % :clients conj ws))
+  nil)
+
+(defmethod handle-request :new-target [ws {:keys [game-id]}]
+  (swap! contexts update game-id (fn[ctx]
+                                   (let [new-target (snake/new-target
+                                                     (get-in ctx [:board :width])
+                                                     (get-in ctx [:board :height])
+                                                     (get-in ctx [:board :snakes]))]
+                                     (assoc-in ctx [:board :target-position] new-target)))))
+                                              
+
 
 (defn handle-message-fn [ws]
   (fn [message]
     (let [m    (read-string message)
-          resp (handle-request ws m)])))
+          resp (handle-request ws m)]
+      (when resp
+        (send-data ws resp)))))
 
 (defn handle-close-fn [ws closed?]
   (fn []
