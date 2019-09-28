@@ -9,8 +9,10 @@
             [clojure.edn :refer [read-string]]
             [garden.core :as g]
             [goog.string :as str]
-            [goog.object :as gobj]))
-
+            [goog.object :as gobj]
+            [thi.ng.math.core :as math]
+            [thi.ng.tweeny.core :as tw]
+            [multisnakes.svg :as svg]))
 
 (set! *warn-on-infer* true)
 
@@ -30,7 +32,9 @@
 (defonce game-opts
   (atom {:width       25
          :height      25
-         :snake-count 0}))
+         :snake-count 0
+         :canvas-w    375
+         :canvas-h    375}))
 
 (def canvas-wrapper-styles {:display    :flex
                             :flex-direction :column
@@ -39,10 +43,11 @@
 
 (def canvas-styles {:display  :block
                     :position :relative
-                    :width    "40%"
-                    :border   "solid 1px black"})
+                    :max-height "80vh"
+                    :width    "100%"
+                    :border   "solid 1px pink"})
 
-(def ws-endpoint "wss://c3d52b1a.ngrok.io")
+(def ws-endpoint "wss://72e6b296.ngrok.io")
 
 (defn draw-position
   [ctx pos cell-w cell-h color]
@@ -50,8 +55,24 @@
     (.beginPath ctx)
     (.rect ctx (* x cell-w) (* y cell-h) cell-w cell-h)
     (set! (.-fillStyle ctx) color)
-    (.fill ctx)
+    (set! (.-strokeStyle ctx) color)
+    (.fill ctx) ;(.stroke ctx)
     (set! (.-lineWidth ctx) 0)))
+
+(defn explode-target
+  [x y color radius time]
+  (let [kf [[1 {:v {:pos    [x y]
+                    :radius radius
+                    :color  (color/as-rgba color)
+                    :time   0}}]
+            [60 {:v {:pos    [x y]
+                     :radius (* 2 radius)
+                     :color  (-> color
+                                 (color/as-rgba)
+                                 (color/adjust-alpha  -1.0)
+                                 (color/adjust-saturation -0.5))
+                     :time   time}}]]]
+    (map #(vector % (tw/at % kf)) (range 30))))
 
 (defn draw-target
   [ctx pos cell-w cell-h color]
@@ -76,10 +97,11 @@
 (defn generic-input [type cursor label]
   [:div.form-group
    [:label label]
-   [:input {:type type
-            :value @cursor
-            :on-change (fn [e] (reset! cursor (event-value e)))
-            :placeholder label}]])
+   [:input.form-control
+    {:type type
+     :value @cursor
+     :on-change (fn [e] (reset! cursor (event-value e)))
+     :placeholder label}]])
 (def number-input (partial generic-input :number))
 (def text-input (partial generic-input :text))
 
@@ -98,18 +120,30 @@
                               vector
                               GRADIENTS
                               (vals (:snakes b)))
-             :let [[color1 color2] snake-color
+             :let [dead? (snake/dead? s (snake/get-blocked-positions b s))
+                   [color1 color2] snake-color
                    [head-x head-y] (snake/get-head s)
-                   color1 (color/rotate-hue color1 (* (count (:positions s)) 0.3))
-                   color2 (color/rotate-hue color2 (* (count (:positions s)) -0.3))]]
+                   color1 (if dead?
+                            color/BLACK
+                            (color/rotate-hue color1 (* (count (:positions s)) 0.3)))
+                   color2 (if dead?
+                            color/GRAY
+                            (color/rotate-hue color2 (* (count (:positions s)) -0.3)))]]
        (doseq [[c [x y]] (with-color-interpolation
                            (get-in s [:positions])
                            color1
                            color2)]
          (draw-position ctx [x y] cell-w cell-h c))
-       (.. ctx (strokeText (:id s) (* cell-w head-x) (* cell-h head-y)))))
+       (if dead?
+         (set! (.-strokeStyle ctx) "red")
+         (set! (.-strokeStyle ctx) "black"))
+       (.. ctx (strokeText (if dead?
+                             (str
+                              (:id s) " -- DEAD")
+                             (:id s))
+                           (* cell-w head-x) (* cell-h head-y)))))
     (draw-target ctx (:target-position b)
-                   cell-w cell-h "red")))
+                 cell-w cell-h "red")))
 
 (defn random-positions [w h n]
   (take n
@@ -154,8 +188,8 @@
         ;; (draw-board  b w h))
     :reagent-render
     (fn [b w h]
-      [:div {:style canvas-wrapper-styles}
-       [:canvas#board {:width w :height h :style canvas-styles}]])}))
+      ;; [:div {:style canvas-wrapper-styles}
+      [:canvas#board {:width w :height h :style canvas-styles}])}))
 
 (defn handle-message [evt]
   (let [data (read-string {:readers {'multisnakes.snake.Board snake/map->Board
@@ -167,8 +201,8 @@
     (swap! game-opts assoc :game-id id)
     (reset! score (count (get-in b [:snake :positions])))
     (reset! game-id id)
-    (reset! game-over? (snake/game-over? b))
-    (draw-board  b 500 500)))
+    (reset! game-over? (snake/game-over? b))))
+    ;; (draw-board  b (:canvas-w @game-opts) (:canvas-h @game-opts))))
 
 (defn game-request [w h snake-count]
   {:type   :create-game
@@ -180,17 +214,15 @@
   {:type :new-target
    :game-id game-id})
 
-(defn add-snake [game-id name]
-  {:type :add-snake
-   :snake-id name
-   :game-id game-id})
+;; (defn add-snake [game-id name]
+  ;; {:type :add-snake
+   ;; :snake-id name
+   ;; :game-id game-id})
 
 (defn remove-snake [game-id snake-id]
   {:type :remove-snake
    :game-id game-id
    :snake-id snake-id})
-
-
 
 (defn send-data [ws data]
   (. ws (send (pr-str data))))
@@ -203,57 +235,63 @@
 
     (. ws (addEventListener "message" handle-message))
     ws))
-(defn play-local [w h snake-count]
-  (let [out (async/chan)]
-    (go-loop [board (snake/create-board w h (random-snakes w h (int snake-count)))]
+#_(defn play-local [w h snake-count]
+    (let [out (async/chan)]
+      (go-loop [board (snake/create-board w h (random-snakes w h (int snake-count)))]
       ;; (draw-board board (:width board) (:height board))
-      (>! out board)
-      (let [over? (snake/game-over? board)]
-        (when-not over?
-          (recur
-           (reduce
-             (fn [b s] 
-               (if-not (snake/dead? (get-in b [:snakes s]) (snake/get-blocked-positions b (get-in b [:snakes s])))
-                 (let [dir (-> (snake/target-directions
-                                (get-in b [:snakes s])
-                                (:target-position b)
-                                (snake/get-blocked-positions b (get-in b [:snakes s])))
-                               shuffle
-                               first)]
-                   (snake/play b s dir))
-                 b))
-             board
-             (keys (get-in board [:snakes])))))))
-    (go-loop [b (<! out)]
-      (when-not (nil? b)
-        (reset! board b)
-        (draw-board b 400 400)
-        (<! (async/timeout 50))
-        (recur (<! out))))))
+        (>! out board)
+        (let [over? (snake/game-over? board)]
+          (when-not over?
+            (recur
+             (reduce
+              (fn [b s]
+                (if-not (snake/dead? (get-in b [:snakes s]) (snake/get-blocked-positions b (get-in b [:snakes s])))
+                  (let [dir (-> (snake/target-directions
+                                 (get-in b [:snakes s])
+                                 (:target-position b)
+                                 (snake/get-blocked-positions b (get-in b [:snakes s])))
+                                shuffle
+                                first)]
+                    (snake/play b s dir))
+                  b))
+              board
+              (keys (get-in board [:snakes])))))))
+      (go-loop [b (<! out)]
+        (when-not (nil? b)
+          (reset! board b)
+          (draw-board b 400 400)
+          (<! (async/timeout 50))
+          (recur (<! out))))))
 
 (defn start-ws-btn []
-  [:button
+  [:button.btn.btn-primary
    ;; {:on-click #(play-local (:width @game-opts) (:height @game-opts) (:snake-count @game-opts))
    {:on-click #(reset! ws (open-websocket ws-endpoint))
     :disabled (not= nil @ws)}
    "Create"])
 (defn start-game-btn []
-  [:button
+  [:button.btn.btn-secondary
    {:on-click #(send-data @ws {:type :start-game
                                :game-id @game-id})}
    "START"])
 (defn stop-ws-btn []
-  [:button
+  [:button.btn.btn-warning
    {:on-click #(do (. @ws (close))
                    (reset! ws nil))
     :disabled (nil? @ws)}
    "Stop"])
 
 (defn new-target-btn []
-  [:button
+  [:button.btn.btn-outline-info
    {:on-click #(send-data @ws (new-target-request @game-id))
     :disabled (nil? @ws)}
    "New target"])
+
+(defn reset-btn []
+  [:button.btn.btn-outline-danger
+   {:on-click #(send-data @ws {:type :reset-game :game-id @game-id})
+    :disabled (nil? @ws)}
+   "Reset Game"])
 
 (defn join-game [url]
   (let [req {:type    :join-game
@@ -280,67 +318,80 @@
 (defn score-table
   []
   [:div.score-table
-   [:style
-    (g/css [:table {:width "80%"}
-            [:thead>tr>th {:font-size "1.1em"
-                           :text-transform :uppercase}]
-            [:tbody
-             [:tr
-              [:td {:text-align :center}]]]])]
-   [:table
+   #_[:style
+      (g/css [:table.table {:width "80%"}
+              [:thead>tr>th {:font-size "1.1em"}
+               :text-transform :uppercase]
+              [:tbody
+               [:tr
+                [:td {:text-align :center}]]]])]
+   [:table.table.table-striped
     [:thead
      [:tr
       [:th "la snake"]
       [:th "puntos"]
       [:th "muerta?"]]]
     [:tbody
-     (for [[[c1 c2] [id snake]] (map vector GRADIENTS (:snakes @board))]
-       [:tr {:key (str "row-" id)}
-        [:td (gradient-text id c1 c2)]
-        [:td (count (:positions snake))]
-        [:td (if (:dead? snake) "SI" "NO")]])]]])
+     (doall
+       (for [[[c1 c2] [id snake]]
+             (map vector GRADIENTS
+                  (sort-by
+                   (fn [[i s]]
+                     (* -1
+                        (count (:positions s))))
+                   (:snakes @board)))]
+         [:tr {:key (str "row-" id)}
+          [:td (gradient-text id c1 c2)]
+          [:td (count (:positions snake))]
+          [:td (if (snake/dead?  snake (snake/get-blocked-positions @board snake )) "SI" "NO")]]))]]])
 
 (defn ^:export main-component []
-  [:div.main-component
+  [:div.container-fluid
    [:style
     (g/css
      [:h1 {:text-transform :uppercase
-           :text-align :center
-           :font-family :sans-serif
-           :margin-bottom "1em"}]
+           :text-align     :center
+           :font-family    :sans-serif
+           :margin-bottom  "1em"}]
      [:label {:text-transform :uppercase
-              :margin-right "2em"}]
+              :margin-right   "2em"}]
      [:div.v-container
-      {:display        :flex
-       :flex-direction :column
-       :align-content  :space-around
-       :justify-content  :space-around}]
+      {:display         :flex
+       :flex-direction  :column
+       :align-content   :space-around
+       :justify-content :space-around}]
      [:canvas {:min-width "30em"}]
      [:div.h-container
-      {:display        :flex
-       :flex-direction :row
-       :align-content  :space-around
-       :justify-content  :space-around}]
-     [:button {:padding "0.6em"
-               :text-transform :uppercase
-               :border-radius "0.5em"
-               :margin "0.5em"
-               :border "solid yellow 3px"
+      {:display         :flex
+       :flex-direction  :row
+       :align-content   :space-around
+       :justify-content :space-around}]
+     [:button {:padding          "0.6em"
+               :text-transform   :uppercase
+               :border-radius    "0.5em"
+               :margin           "0.5em"
+               :border           "solid yellow 3px"
                :background-color :white}
       [:&:hover
        {:background-color "yellow"
         :border-color     :black
         :font-weight      600}]])]
-   [:h1 "snakes de mierda"]
-   [:div.h-container
-    [:div.v-container
+   [:h1 "gusanito loco"]
+   
+   [:div.row
+    [:div#config-panel.col.collapse
+     {:class ""}
      [score-table]
      [:div.inputs
       [text-input (reagent/cursor game-opts [:game-id]) "game id"]
       [text-input (reagent/cursor game-opts [:snake-name])  "snake name"]
-      [:button {:type :button
-                :on-click (fn [e]
-                            (send-data @ws (add-snake (:game-id @game-opts) (:snake-name @game-opts))))}
+      [:button.btn.btn-outline-warning
+       {:type     :button
+        :on-click (fn [e]
+                    (send-data @ws
+                               (add-snake
+                                (:game-id @game-opts)
+                                (:snake-name @game-opts))))}
        "add snake"]
 
       [number-input (reagent/cursor game-opts [:width]) "width"]
@@ -351,8 +402,9 @@
                :value       @game-id
                :type        :text
                :placeholder "Game ID"}]
-      [:button {:type     :button
-                :on-click #(reset! ws (join-game ws-endpoint))}
+      [:button.btn.btn-outline-info
+       {:type     :button
+        :on-click #(reset! ws (join-game ws-endpoint))}
        "Join game"]]
      (when @game-over?
        [:div {:style {:color "red"}} "SE KEMÓ TOKIO"])
@@ -360,8 +412,18 @@
       [start-ws-btn]
       [start-game-btn]
       [stop-ws-btn]
+      [reset-btn]
       [new-target-btn]]]
-    [board-canvas @board 500 500]]])
+    [:div.col
+     [:a.btn.btn-outline-danger.btn-block.mb-2
+      {:href          "#config-panel"
+       :data-toggle   :collapse
+       :role          :button
+       :aria-expanded false
+       :aria-controls "config-panel"}
+      "hide panel"]
+     [svg/svg-board @board]]]])
+     ;; [board-canvas @board 375 375]]]])
 
 (defn init! []
   (reagent/render

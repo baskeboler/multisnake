@@ -11,7 +11,6 @@
 (defonce server (atom nil))
 (defonce contexts (atom {}))
 
-
 (defonce ws-response-chan (chan 50))
 
 (defn async-some [pred input-chan]
@@ -70,7 +69,8 @@
          (random-names n)))))
 
 (defn create-new-game-context [ws w h snake-count]
-  (let [id    (str/getRandomString)
+  (let [id    (apply str
+                     (take 4 (str/getRandomString)))
         snakes (random-snakes w h snake-count)
         board (snake/create-board w h snakes)]
     {:game-id    id
@@ -102,7 +102,7 @@
 
 (defn start-game-updates [game-id]
   #_(let [port (sliding-buffer 50)]
-     (thread))
+      (thread))
   (go-loop [_      (<! (timeout 1000))]
     (send-game-updates game-id)
     (let [ctx     (get-context game-id)
@@ -116,19 +116,7 @@
                (fn [ctx]
                  (-> ctx
                      (update :board
-                             #(reduce
-                               (fn [b s]
-                                 (if-not (snake/dead? (get-in b [:snakes s]) (get-blocked-positions b (get-in b [:snakes s])))
-                                   (let [dir (-> (snake/target-directions
-                                                  (get-in b [:snakes s])
-                                                  (:target-position b)
-                                                  (get-blocked-positions b (get-in b [:snakes s])))
-                                                 shuffle
-                                                 first)]
-                                     (snake/play b s dir))
-                                   b))
-                               %
-                               (keys (get-in % [:snakes])))))))
+                             snake/play-round))))
         (recur (<! (timeout 50)))))))
 
 (defmulti handle-request (fn [ws request]
@@ -145,8 +133,8 @@
 (defmethod handle-request :start-game
   [ws {:keys [game-id]}]
   (start-game-updates game-id)
-  (-> (get @contexts game-id)
-      (dissoc :clients))
+  ;; (-> (get @contexts game-id)
+      ;; (dissoc :clients))
   nil)
 (defmethod handle-request :add-snake
   [ws {:keys [game-id snake-id]}]
@@ -167,16 +155,21 @@
   (println "Join game: " game-id)
   (swap! contexts update game-id #(update % :clients conj ws))
   nil)
+(defmethod handle-request :reset-game [w {:keys [game-id]}]
+  (println "Reset game: " game-id)
+  (swap! contexts update game-id
+         (fn [ctx]
+           (update ctx :board snake/reset))))
 
 (defmethod handle-request :new-target [ws {:keys [game-id]}]
-  (swap! contexts update game-id (fn[ctx]
+  (swap! contexts update game-id (fn [ctx]
                                    (let [new-target (snake/new-target
                                                      (get-in ctx [:board :width])
                                                      (get-in ctx [:board :height])
                                                      (get-in ctx [:board :snakes]))]
-                                     (assoc-in ctx [:board :target-position] new-target)))))
-                                              
+                                     (assoc-in ctx [:board :target-position] new-target))))
 
+  nil)
 
 (defn handle-message-fn [ws]
   (fn [message]
