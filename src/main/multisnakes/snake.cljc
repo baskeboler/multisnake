@@ -188,7 +188,8 @@
                                              [(:id s) s]))
                                           (into {}))
                           (= Snake (type snakes)) {(:id snakes) snakes})
-                :target-position target}))
+                :target-position target
+                :events []}))
   ([w h snakes]
    (create-board w h snakes (new-target w h snakes)))
   ([w h]
@@ -335,7 +336,9 @@
   (assert (= Board (type board)))
   (when-not  (nil? board)
     ;; (if-not (game-over? board)
-      (let [snake-ids (vec (keys (:snakes board)))]
+      (let [snake-ids (vec 
+                        (shuffle 
+                          (keys (:snakes board))))]
         (reduce
          (fn [result-board snake-id]
            (let [snake          (get-in result-board [:snakes snake-id])

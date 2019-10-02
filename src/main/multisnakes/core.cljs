@@ -49,25 +49,8 @@
 (defn create-websocket-server [^js server]
   (new (. ^js WebSocket -Server) (clj->js {:server server})))
 
-#_(defn random-positions [w h n]
-   (take n
-        (shuffle
-         (for [i (range w)
-               j (range h)]
-           [i j]))))
-
 (defn random-names [n]
   (repeatedly n str/getRandomString))
-
-#_(defn random-snakes [w h n]
-   (into)
-   {}
-   (map
-    #(vector (:id %) %)
-    (map snake/create-snake
-         (map vector
-              (random-positions w h n)
-              (random-names n)))))
 
 (defn create-new-game-context [ws w h snake-count]
   (let [id     (apply str
@@ -100,7 +83,7 @@
 
 (defn start-game-updates [game-id]
   (go
-    (loop [_      (<! (timeout 1000))]
+    (loop [_      (<! (timeout 100))]
       (send-game-updates game-id)
       (let [ctx     (get-context game-id)
             board   (:board ctx)
@@ -111,29 +94,21 @@
                  update-in
                  [game-id :board]
                  #(snake/play-round %))
-                 ;; (fn [ctx]
-                   ;; (-> ctx
-                       ;; (update :board
-                               ;; snake/play-round)
-          ;; (send-game-updates game-id)
           (recur (<! (timeout 50))))))))
 
 (defmulti handle-request (fn [ws request]
-                           ;; (println "Got request: " request)
+                           (println "Got request: " request)
                            (:type request)))
 
 (defmethod handle-request  :create-game
   [ws {:keys [width height snake-count] :or {width 30 height 30 snake-count 0}}]
   (let [ctx (create-new-game-context ws width height snake-count)]
     (add-context! ctx)
-    ;; (start-game-updates (:id ctx))
     (dissoc ctx :clients)))
 
 (defmethod handle-request :start-game
   [ws {:keys [game-id]}]
   (start-game-updates game-id)
-  ;; (-> (get @contexts game-id)
-      ;; (dissoc :clients))
   nil)
 (defmethod handle-request :add-snake
   [ws {:keys [game-id snake-id]}]
@@ -149,14 +124,12 @@
    (get @contexts game-id)
    (dissoc :clients)))
 (defmethod handle-request :join-game [ws {:keys [game-id]}]
-  ;; (println "Join game: " game-id)
+  (println "Join game: " game-id)
   (swap! contexts update game-id #(update % :clients conj ws))
   nil)
 (defmethod handle-request :reset-game [w {:keys [game-id]}]
-  ;; (println "Reset game: " game-id)
-  (swap! contexts update game-id
-         (fn [ctx]
-           (update ctx :board snake/reset))))
+  (println "Reset game: " game-id)
+  (swap! contexts update-in [game-id :board] snake/reset))
 
 (defmethod handle-request :new-target [ws {:keys [game-id]}]
   (swap! contexts update game-id (fn [ctx]
@@ -177,7 +150,7 @@
 
 (defn handle-close-fn [^js ws closed?]
   (fn []
-    ;; (println "Connection closed")
+    (println "Connection closed")
     (remove-ws ws)
     (reset! closed? true)))
 

@@ -346,7 +346,7 @@
           [:td (if (snake/dead?  snake (snake/get-blocked-positions @board snake )) "SI" "NO")]]))]]])
 
 (defn ^:export main-component []
-  [:div.container-fluid
+  [:div.container
    [:style
     (g/css
      [:h1 {:text-transform :uppercase

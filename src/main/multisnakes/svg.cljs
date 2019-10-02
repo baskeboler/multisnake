@@ -1,6 +1,8 @@
 (ns multisnakes.svg
   (:require [thi.ng.color.core :as colors]
             [thi.ng.math.core :as math]
+            [thi.ng.tweeny.core :as tw]
+            [thi.ng.geom.core :as geom]
             [multisnakes.snake :as snake]))
 (def color-palette (repeatedly colors/random-rgb))
 (def gradients (map vec
@@ -82,3 +84,18 @@
      (let [[x y] (:target-position board)]
        ^{:key :target-position}
         [circ [x y] 0.5 colors/RED])]))
+
+(defn explode-seq [{:keys [r color] :as start} t]
+  (let [kf [[0 {:v
+                {:r     r
+                 :color @(colors/as-rgba color)}}]
+            [t {:v
+                {:r     (* 1.5 r)
+                 :color @(-> (colors/adjust-alpha color  -1)
+                             (colors/as-rgba))}}]]]
+    (map #(tw/at % kf) (range 0 t 50))))
+
+(defn interpolate-seq [start end t]
+  (let [kf [[0 {:v start}]
+            [t {:v end}]]]
+    (map #(tw/at % kf) (range 0 t 50))))
