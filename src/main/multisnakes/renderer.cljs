@@ -47,7 +47,7 @@
                     :width    "100%"
                     :border   "solid 1px pink"})
 
-(def ws-endpoint "wss://72e6b296.ngrok.io")
+(def ws-endpoint "wss://c8b579e2.ngrok.io")
 
 (defn draw-position
   [ctx pos cell-w cell-h color]
@@ -105,15 +105,15 @@
 (def number-input (partial generic-input :number))
 (def text-input (partial generic-input :text))
 
-(defn draw-board [b w h]
-  (let [ctx          (.
+#_(defn draw-board [b w h]
+   (let [ctx          (.)
                       ;; ^js/HTMLCanvasElement @canvas
                       (dom/getElement "board")
-                      (getContext "2d"))
+                      (getContext "2d")]
         board-w      (:width b)
         board-h      (:height b)
         cell-w       (/ w board-w)
-        cell-h       (/ h board-h)]
+        cell-h       (/ h board-h)
     (. ctx (clearRect 0 0 w h))
     (doall
      (doseq [[snake-color s] (map
@@ -174,22 +174,22 @@
      :board board
      :clients [ws]}))
 
-(defn board-canvas [b w h]
-  (reagent/create-class
-   {:display-name "board-canvas"
-    :component-did-mount
-    (fn [this]
+#_(defn board-canvas [b w h]
+   (reagent/create-class
+    {:display-name "board-canvas"
+     :component-did-mount
+     (fn [this]
       (let [node      (reagent/dom-node this)
             canvas-el (dom/getFirstElementChild node)]
         (reset! canvas canvas-el)
-        (draw-board b w h)))
+        (draw-board b w h)))}
       ;; :component-did-update
       ;; (fn [this]
         ;; (draw-board  b w h))
     :reagent-render
     (fn [b w h]
       ;; [:div {:style canvas-wrapper-styles}
-      [:canvas#board {:width w :height h :style canvas-styles}])}))
+      [:canvas#board {:width w :height h :style canvas-styles}])))
 
 (defn handle-message [evt]
   (let [data (read-string {:readers {'multisnakes.snake.Board snake/map->Board

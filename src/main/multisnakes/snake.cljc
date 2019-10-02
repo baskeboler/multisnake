@@ -15,9 +15,9 @@
 
 (defn get-blocked-positions
   ([b snake future-rounds]
-   (let [ss (filter #(not= (:id snake) (:id %))
+   (let [ss (filterv #(not= (:id snake) (:id %))
                     ;; (drop-last  future-rounds)
-                    (vals (:snakes b)))]
+                     (vals (:snakes b)))]
      (apply concat (map (fn [s]
                           (if-not (:dead? s)
                             (drop-last future-rounds (:positions s))
@@ -59,7 +59,7 @@
   (get-tail [this] (rest (:positions this)))
 
   (hit? [this position]
-    ((set (:positions this)) position))
+    ((into #{} (:positions this)) position))
 
   (dead? [this blocked-positions]
     (or (get this :dead? false)
@@ -91,7 +91,10 @@
 (defprotocol PBoard
   (play [this snake-id direction])
   (game-over? [this]))
-
+(extend-protocol PBoard
+  nil
+  (play [this a b] this)
+  (game-over? [_] false))
 (defn hit-target? [position direction target-position]
   (= (move-position position direction) target-position))
 
@@ -116,26 +119,48 @@
                    :target-position (new-target (:width board) (:height board) (:snakes board)))))
       board)))
 
-(defrecord ^:export Board [width height snakes target-position]
+(defn event [type snake-id text]
+  {:type type
+   :snake-id snake-id
+   :message text})
+
+(defn update-events [{:keys [snake-id died? captured-target?]}]
+  (let [update-dead
+        (fn [board]
+          (if died?
+            (do
+              ;; (println (str "snake " snake-id " has died"))
+              (update board :events conj (event :snake-died snake-id (str "snake " snake-id " has died"))))
+            board))
+        update-captured
+        (fn [board]
+          (if captured-target?
+            (do
+              ;; (println (str "snake " snake-id " has captured target"))
+              (update board :events conj (event :capture-target snake-id (str "snake " snake-id " has captured target"))))
+            board))]
+    (comp update-dead update-captured)))
+
+(defrecord Board [width height snakes target-position]
   PBoard
   (play [this snake-id direction]
     (let [snake            (get-in this  [:snakes snake-id])
-          need-new-target? (hit-target? (first (:positions snake))
+          need-new-target? (hit-target? (get-head snake)
                                         direction
                                         (:target-position this))
           new-snake        (move snake direction need-new-target?)
           new-snake        (if (dead? new-snake (get-blocked-positions this new-snake))
                              (assoc new-snake :dead? true)
                              new-snake)
+          events-updater (update-events {:snake-id snake-id
+                                         :died? (:dead? new-snake)
+                                         :captured-target need-new-target?})
           target-updater   (update-board-target-fn need-new-target?)]
       (-> this
           (assoc-in [:snakes snake-id] new-snake)
-          ;; (update :target-position
-          ;;         (fn [target]
-          ;;           (if need-new-target?
-          ;;             (new-target (:width this) (:height this) (:snakes this))
-          ;;             target)))
-         target-updater))) 
+          (target-updater)
+          (events-updater))))
+          
   (game-over? [this]
     (every?
      #(dead? % (get-blocked-positions this %))
@@ -151,7 +176,6 @@
                         (for [[snake-id snake] snakes]
                           [snake-id (reset snake)]))))
         (dissoc :game-over?))))
-
 (defn create-board
   ([w h snakes target]
    (map->Board {:width w
@@ -159,8 +183,9 @@
                 :snakes (cond
                           (map? snakes) snakes
                           (coll? snakes) (->>
-                                          (for [s snakes]
-                                            [(:id s) s])
+                                          (doall
+                                           (for [s snakes]
+                                             [(:id s) s]))
                                           (into {}))
                           (= Snake (type snakes)) {(:id snakes) snakes})
                 :target-position target}))
@@ -244,7 +269,7 @@
     (let [alives (filter (comp not #(dead? % blocked-positions)) s)]
       (if (empty? alives)
         (do
-          (println (:id snake) " cannot escape")
+          ;; (println (:id snake) " cannot escape")
           false)
         (if (= MAX-SEARCH-DEPTH depth)
           true
@@ -285,7 +310,7 @@
         opts              (if-not (empty? opts)
                             opts
                             (do
-                              (println "gotta choose least worse")
+                              ;; (println "gotta choose least worse")
                               (filter #(can-escape? snake % board)
                                       directions)))]
     opts))
@@ -306,24 +331,27 @@
        shuffle
        first))
 
-
 (defn play-round [board]
-  (if-not (game-over? board)
-    (let [snake-ids (keys (:snakes board))]
-      (reduce
-       (fn [result-board snake-id]
-         (let [snake          (get-in result-board [:snakes snake-id])
-               snake-is-dead? (dead? snake (get-blocked-positions result-board snake))
-               play-direction (if-not snake-is-dead?
-                                (->> (target-directions snake result-board)
-                                     shuffle
-                                     first)
-                                (-> directions shuffle first))]
-           (if-not snake-is-dead?
-             (play result-board snake-id play-direction)
-             result-board)))
-       board
-       snake-ids))
-    (do
-      (println "Game Over, no more rounds")
-      board)))
+  (assert (= Board (type board)))
+  (when-not  (nil? board)
+    ;; (if-not (game-over? board)
+      (let [snake-ids (vec (keys (:snakes board)))]
+        (reduce
+         (fn [result-board snake-id]
+           (let [snake          (get-in result-board [:snakes snake-id])
+                 snake-is-dead? (dead? snake (get-blocked-positions result-board snake))
+                 play-direction (if-not snake-is-dead?
+                                  (->> (target-directions snake result-board)
+                                       shuffle
+                                       first)
+                                  (-> directions shuffle first))
+                 play-direction (if (nil? play-direction) (-> directions shuffle first) play-direction)]
+             (if-not snake-is-dead?
+               (play result-board snake-id play-direction)
+               result-board)))
+         board
+         snake-ids))   
+      #_(do
+         (println "Game Over, no more rounds")
+         board)))
+    ;; board))

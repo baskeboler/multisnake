@@ -4,10 +4,11 @@
             ["ws" :as WebSocket]
             ["process" :as process]
             [com.stuartsierra.component :as component :refer [start stop]]
-            [multisnakes.snake :as snake :refer [Board Snake]]
+            [multisnakes.snake :as snake]
             [cljs.core.async :as async :refer [go go-loop <! >! sliding-buffer chan timeout]]
             [goog.string :as str]
             [cljs.reader :refer [read-string]]))
+
 (defonce server (atom nil))
 (defonce contexts (atom {}))
 
@@ -48,8 +49,8 @@
 (defn create-websocket-server [^js server]
   (new (. ^js WebSocket -Server) (clj->js {:server server})))
 
-(defn random-positions [w h n]
-  (take n
+#_(defn random-positions [w h n]
+   (take n
         (shuffle
          (for [i (range w)
                j (range h)]
@@ -58,42 +59,39 @@
 (defn random-names [n]
   (repeatedly n str/getRandomString))
 
-(defn random-snakes [w h n]
-  (into
+#_(defn random-snakes [w h n]
+   (into)
    {}
    (map
     #(vector (:id %) %)
     (map snake/create-snake
          (map vector
-              (random-positions w h n))
-         (random-names n)))))
+              (random-positions w h n)
+              (random-names n)))))
 
 (defn create-new-game-context [ws w h snake-count]
-  (let [id    (apply str
-                     (take 4 (str/getRandomString)))
-        snakes (random-snakes w h snake-count)
-        board (snake/create-board w h snakes)]
-    {:game-id    id
-     :start (js/Date.)
-     :board board
+  (let [id     (apply str
+                      (take 4 (str/getRandomString)))
+        snakes {} ;(random-snakes w h snake-count)
+        board  (snake/create-board w h snakes)]
+    {:game-id id
+     :start   (js/Date.)
+     :board   board
      :clients [ws]}))
 
 (defn send-data [ws data]
   (. ws (send (pr-str data))))
 
 (defn send-game-updates [game-id]
-  (let [ctx   (get-context game-id)
+  (let [ctx   (get @contexts game-id)
         board (:board ctx)
         over? (snake/game-over? board)]
     (doall
-     (doseq [ws (-> ctx :clients)]
-       (send-data ws
-                  (with-timestamp
-                    (merge
-                     (if over? {:game-over? true} {})
-                     {:game-id game-id
-                      :board   board})))))))
-
+     (doseq [ws (-> ctx :clients)
+             :let [d (dissoc ctx :clients)]]
+       ;; (println d)
+       (send-data ws d)))))
+                 
 (defn update-board [board])
 
 (defn get-blocked-positions [b snake]
@@ -101,26 +99,27 @@
     (apply concat (map (comp  :positions) ss))))
 
 (defn start-game-updates [game-id]
-  #_(let [port (sliding-buffer 50)]
-      (thread))
-  (go-loop [_      (<! (timeout 1000))]
-    (send-game-updates game-id)
-    (let [ctx     (get-context game-id)
-          board   (:board ctx)
-          closed? (zero? (count (:clients ctx)))
-          over?   (snake/game-over? board)]
-      (when-not (or closed? over?)
-        (swap! contexts
-               update
-               game-id
-               (fn [ctx]
-                 (-> ctx
-                     (update :board
-                             snake/play-round))))
-        (recur (<! (timeout 50)))))))
+  (go
+    (loop [_      (<! (timeout 1000))]
+      (send-game-updates game-id)
+      (let [ctx     (get-context game-id)
+            board   (:board ctx)
+            closed? (zero? (count (:clients ctx)))
+            over?   (snake/game-over? board)]
+        (when-not (or closed? over?)
+          (swap! contexts
+                 update-in
+                 [game-id :board]
+                 #(snake/play-round %))
+                 ;; (fn [ctx]
+                   ;; (-> ctx
+                       ;; (update :board
+                               ;; snake/play-round)
+          ;; (send-game-updates game-id)
+          (recur (<! (timeout 50))))))))
 
 (defmulti handle-request (fn [ws request]
-                           (println "Got request: " request)
+                           ;; (println "Got request: " request)
                            (:type request)))
 
 (defmethod handle-request  :create-game
@@ -138,25 +137,23 @@
   nil)
 (defmethod handle-request :add-snake
   [ws {:keys [game-id snake-id]}]
-  (swap! contexts update game-id
-         (fn [ctx]
-           (let [w (get-in ctx [:board :width])
-                 h (get-in ctx [:board :height])
-                 taken (snake/positions-taken (:board ctx))]
-             (-> ctx
-                 (update-in [:board :snakes]
-                            (fn [snakes]
-                              (-> snakes
-                                  (assoc snake-id (snake/create-snake (vector (snake/random-position w h taken)) snake-id)))))))))
+  (swap! contexts update-in [game-id :board :snakes]
+         (fn [snakes]
+           (let [w     (get-in @contexts [game-id :board :width])
+                 h     (get-in @contexts [game-id :board :height])
+                 taken (snake/positions-taken (get-in @contexts [game-id :board]))]
+             (-> snakes
+                 (assoc snake-id
+                        (snake/create-snake [(snake/random-position w h taken)] snake-id))))))
   (->
    (get @contexts game-id)
    (dissoc :clients)))
 (defmethod handle-request :join-game [ws {:keys [game-id]}]
-  (println "Join game: " game-id)
+  ;; (println "Join game: " game-id)
   (swap! contexts update game-id #(update % :clients conj ws))
   nil)
 (defmethod handle-request :reset-game [w {:keys [game-id]}]
-  (println "Reset game: " game-id)
+  ;; (println "Reset game: " game-id)
   (swap! contexts update game-id
          (fn [ctx]
            (update ctx :board snake/reset))))
@@ -171,16 +168,16 @@
 
   nil)
 
-(defn handle-message-fn [ws]
+(defn handle-message-fn [^js ws]
   (fn [message]
     (let [m    (read-string message)
           resp (handle-request ws m)]
       (when resp
         (send-data ws resp)))))
 
-(defn handle-close-fn [ws closed?]
+(defn handle-close-fn [^js ws closed?]
   (fn []
-    (println "Connection closed")
+    ;; (println "Connection closed")
     (remove-ws ws)
     (reset! closed? true)))
 
