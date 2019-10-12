@@ -9,11 +9,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@material-ui/core": "^4.4.2",
-    "@material-ui/icons": "^4.4.1",
-    "@material-ui/styles": "^4.4.1",
     "create-react-class": "^15.6.3",
     "express": "^4.17.1",
+    "jexia-sdk-js": "^4.2.0",
     "react": "^16.9.0",
     "react-dom": "^16.9.0",
     "react-flip-move": "^3.0.3",
@@ -22,6 +20,7 @@
     "ws": "^7.1.2"
   },
   "devDependencies": {
+    "@fortawesome/fontawesome-free": "^5.11.2",
     "source-map-support": "^0.5.13"
   }
 }

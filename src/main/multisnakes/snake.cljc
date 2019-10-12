@@ -16,7 +16,6 @@
 (defn get-blocked-positions
   ([b snake future-rounds]
    (let [ss (filterv #(not= (:id snake) (:id %))
-                    ;; (drop-last  future-rounds)
                      (vals (:snakes b)))]
      (apply concat (map (fn [s]
                           (if-not (:dead? s)
@@ -113,10 +112,9 @@
 (defn update-board-target-fn [need-new-target?]
   (fn [board]
     (if need-new-target?
-      (do
         (-> board
             (assoc :previous-target (:target-position board)
-                   :target-position (new-target (:width board) (:height board) (:snakes board)))))
+                   :target-position (new-target (:width board) (:height board) (:snakes board))))
       board)))
 
 (defn event [type snake-id text]
@@ -128,16 +126,20 @@
   (let [update-dead
         (fn [board]
           (if died?
-            (do
-              ;; (println (str "snake " snake-id " has died"))
-              (update board :events conj (event :snake-died snake-id (str "snake " snake-id " has died"))))
+            (update board
+                    :events
+                    conj
+                    (event :snake-died snake-id
+                           (str "snake " snake-id " has died")))
             board))
         update-captured
         (fn [board]
           (if captured-target?
-            (do
-              ;; (println (str "snake " snake-id " has captured target"))
-              (update board :events conj (event :capture-target snake-id (str "snake " snake-id " has captured target"))))
+            (update board
+                    :events
+                    conj
+                    (event :capture-target snake-id
+                           (str "snake " snake-id " has captured target")))
             board))]
     (comp update-dead update-captured)))
 
@@ -152,15 +154,15 @@
           new-snake        (if (dead? new-snake (get-blocked-positions this new-snake))
                              (assoc new-snake :dead? true)
                              new-snake)
-          events-updater (update-events {:snake-id snake-id
-                                         :died? (:dead? new-snake)
-                                         :captured-target need-new-target?})
+          events-updater   (update-events {:snake-id        snake-id
+                                           :died?           (:dead? new-snake)
+                                           :captured-target need-new-target?})
           target-updater   (update-board-target-fn need-new-target?)]
       (-> this
           (assoc-in [:snakes snake-id] new-snake)
           (target-updater)
           (events-updater))))
-          
+
   (game-over? [this]
     (every?
      #(dead? % (get-blocked-positions this %))
@@ -175,21 +177,21 @@
                   (into {}
                         (for [[snake-id snake] snakes]
                           [snake-id (reset snake)]))))
-        (dissoc :game-over?))))
+        (dissoc :game-over? :events))))
 (defn create-board
   ([w h snakes target]
-   (map->Board {:width w
-                :height h
-                :snakes (cond
-                          (map? snakes) snakes
-                          (coll? snakes) (->>
-                                          (doall
-                                           (for [s snakes]
-                                             [(:id s) s]))
-                                          (into {}))
-                          (= Snake (type snakes)) {(:id snakes) snakes})
+   (map->Board {:width           w
+                :height          h
+                :snakes          (cond
+                                   (map? snakes)           snakes
+                                   (coll? snakes)          (->>
+                                                            (doall
+                                                             (for [s snakes]
+                                                               [(:id s) s]))
+                                                            (into {}))
+                                   (= Snake (type snakes)) {(:id snakes) snakes})
                 :target-position target
-                :events []}))
+                :events          []}))
   ([w h snakes]
    (create-board w h snakes (new-target w h snakes)))
   ([w h]
@@ -299,7 +301,6 @@
         [x1 y1]           position
         [x2 y2]           target-position
         [dx dy]           [(- x2 x1) (- y2 y1)]
-        ;; snake (create-snake (concat (:positions snake) blocked-positions))
         opts              [(when (pos? dx) :right)
                            (when (neg? dx) :left)
                            (when (pos? dy) :down)

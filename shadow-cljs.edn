@@ -7,6 +7,7 @@
  :dependencies
  [[reagent "0.8.1"]
   [garden "LATEST"]
+  [metosin/reitit "0.3.9"]
   ;; [org.clojure/data.xml "0.0.8"]
   ;; [clj-tagsoup/clj-tagsoup "0.3.0"]
   [keybind "2.2.0"]
@@ -23,7 +24,7 @@
   [binaryage/devtools "LATEST"]
   ;; [day8.re-frame/http-fx "0.1.6"]
   [cider/cider-nrepl "LATEST"]
-  [refactor-nrepl "LATEST"]
+  ;; [refactor-nrepl "LATEST"]
   [day8.re-frame/tracing "0.5.1"]
   ;; [stylefy "1.10.1"]
   [com.rpl/specter "1.1.2"]

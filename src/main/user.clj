@@ -5,7 +5,8 @@
             [shadow.api :as api]
             [shadow.cljs.devtools.api :as devtools]
             [shadow.cljs.util :as cljs-util]
-            [shadow.cljs.repl :as cljs-repl]))
+            [shadow.cljs.repl :as cljs-repl]
+            [garden.repl :as g]))
 ; (cljs-util/)
 (defn node []
   (devtools/compile :main)

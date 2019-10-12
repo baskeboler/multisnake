@@ -1,7 +1,7 @@
 (ns multisnakes.renderer
   (:require [reagent.core :as reagent :refer [atom reactify-component]]
             [reagent.impl.template :as rtpl]
-            [cljs.core.async :as async :refer [go-loop chan <! >!]]
+            [cljs.core.async :as async :refer [go-loop chan <! >! go timeout]]
             [goog.dom :as dom]
             [thi.ng.geom.core :as geom]
             [thi.ng.color.core :as color]
@@ -12,42 +12,64 @@
             [goog.object :as gobj]
             [thi.ng.math.core :as math]
             [thi.ng.tweeny.core :as tw]
-            [multisnakes.svg :as svg]))
-
+            [multisnakes.svg :as svg]
+            [multisnakes.dom :refer [copy-to-clipboard]]
+            ["jexia-sdk-js/browser" :as jexia :refer [UMS JexiaClient]]
+            [com.stuartsierra.component :as component]
+            [reitit.core :as reitit]
+            [reitit.frontend.easy :as rfe]
+            [reitit.frontend.controllers :as rfc]
+            [multisnakes.config :as config :refer [ws-endpoint]]
+            [multisnakes.animations :as a]
+            [multisnakes.state :as state :refer [game-state ws ws-connected? game-type game-type-selected?
+                                                 game-over? score game-id canvas board game-opts]]
+            [multisnakes.util :as util :refer [number-input text-input score-table]]
+            [multisnakes.local :refer [local-game-control-panel]]
+            [multisnakes.colors :refer [COLORS GRADIENTS gradient-text text-animation-kfs animated-gradient-text]]))
 (set! *warn-on-infer* true)
 
-(defn event-value
-  [^js/Event e]
-  (let [^js/HTMLInputElement el (.-target e)]
-    (.-value el)))
-
-(defonce ws (atom nil))
-(defonce ws-connected? (reagent.ratom/make-reaction #(some? @ws)))
-
-(defonce game-over? (atom false))
-(defonce score (atom 0))
-(defonce game-id (atom nil))
-(def canvas (atom nil))
-(defonce board (atom nil))
-(defonce game-opts
-  (atom {:width       25
-         :height      25
-         :snake-count 0
-         :canvas-w    375
-         :canvas-h    375}))
-
-(def canvas-wrapper-styles {:display    :flex
+(def canvas-wrapper-styles {:display        :flex
                             :flex-direction :column
-                            :align-items :center
-                            :position   :relative})
+                            :align-items    :center
+                            :position       :relative})
 
-(def canvas-styles {:display  :block
-                    :position :relative
+(def canvas-styles {:display    :block
+                    :position   :relative
                     :max-height "80vh"
-                    :width    "100%"
-                    :border   "solid 1px pink"})
+                    :width      "100%"
+                    :border     "solid 1px pink"})
 
-(def ws-endpoint "wss://c8b579e2.ngrok.io")
+(defn game-type-select-modal []
+  [:div.modal.fade
+   {:class (when-not @game-type-selected? "show")
+    :role :dialog}
+   [:div.modal-dialog.modal-dialog-centered>div.modal-content
+    [:div.modal-header
+     [:h5.modal-title "Select game type"]]
+    [:div.modal-body
+     [:div.container
+      [:div.row>div.col-12>form.form.game-type-content
+       [:form-group
+        [:label "game type"]
+        [:div.btn-group.btn-group-toggle
+          ;; {:data-toggle "buttons"}
+         (doall
+          (for [opt [{:label "Remote" :value :remote}
+                     {:label "Local" :value :local}]]
+            ^{:key (str "lbl-opt-" (name (:value opt)))}
+            [:label.btn.btn-secondary
+             {:class (when (= (:value opt) @game-type) "active")}
+             [:input (merge
+                      {:type :radio
+                       :id (str "opt-" (name (:value opt)))
+                       ;; :autoComplete :off
+                       :on-click #(reset! game-type (:value opt))}
+                      (when (= (:value opt) @game-type)
+                        {:checked ""}))]
+             (:label opt)]))]]]]]
+    [:div.modal-footer
+     [:button.btn.btn-primary
+      "Select"]]]])
 
 (defn draw-position
   [ctx pos cell-w cell-h color]
@@ -74,77 +96,14 @@
                      :time   time}}]]]
     (map #(vector % (tw/at % kf)) (range 30))))
 
-(defn draw-target
-  [ctx pos cell-w cell-h color]
-  (let [[x y] pos]
-    (.beginPath ctx)
-    (.ellipse ctx (+ (* 0.5 cell-w) (* x cell-w)) (+ (* 0.5 cell-h) (* y cell-h)) (* 0.5 cell-w) (* 0.5 cell-h) 0 0 360)
-    (set! (.-fillStyle ctx) color)
-    (.fill ctx)
-    (set! (.-lineWidth ctx) 0)))
-
-(defn with-color-interpolation [sequence color1 color2]
-  (let [len (count sequence)]
-    (map-indexed #(vector
-                   @(color/as-css
-                     (thi.ng.math.core/mix
-                      color1 color2 (/ %1 len)))
-                   %2)
-                 sequence)))
-
-(def COLORS (repeatedly color/random-rgb))
-(def GRADIENTS (partition 2 COLORS))
-(defn generic-input [type cursor label]
-  [:div.form-group
-   [:label label]
-   [:input.form-control
-    {:type type
-     :value @cursor
-     :on-change (fn [e] (reset! cursor (event-value e)))
-     :placeholder label}]])
-(def number-input (partial generic-input :number))
-(def text-input (partial generic-input :text))
-
-#_(defn draw-board [b w h]
-   (let [ctx          (.)
-                      ;; ^js/HTMLCanvasElement @canvas
-                      (dom/getElement "board")
-                      (getContext "2d")]
-        board-w      (:width b)
-        board-h      (:height b)
-        cell-w       (/ w board-w)
-        cell-h       (/ h board-h)
-    (. ctx (clearRect 0 0 w h))
-    (doall
-     (doseq [[snake-color s] (map
-                              vector
-                              GRADIENTS
-                              (vals (:snakes b)))
-             :let [dead? (snake/dead? s (snake/get-blocked-positions b s))
-                   [color1 color2] snake-color
-                   [head-x head-y] (snake/get-head s)
-                   color1 (if dead?
-                            color/BLACK
-                            (color/rotate-hue color1 (* (count (:positions s)) 0.3)))
-                   color2 (if dead?
-                            color/GRAY
-                            (color/rotate-hue color2 (* (count (:positions s)) -0.3)))]]
-       (doseq [[c [x y]] (with-color-interpolation
-                           (get-in s [:positions])
-                           color1
-                           color2)]
-         (draw-position ctx [x y] cell-w cell-h c))
-       (if dead?
-         (set! (.-strokeStyle ctx) "red")
-         (set! (.-strokeStyle ctx) "black"))
-       (.. ctx (strokeText (if dead?
-                             (str
-                              (:id s) " -- DEAD")
-                             (:id s))
-                           (* cell-w head-x) (* cell-h head-y)))))
-    (draw-target ctx (:target-position b)
-                 cell-w cell-h "red")))
-
+#_(defn draw-target
+    [ctx pos cell-w cell-h color]
+    (let [[x y] pos]
+      (.beginPath ctx)
+      (.ellipse ctx (+ (* 0.5 cell-w) (* x cell-w)) (+ (* 0.5 cell-h) (* y cell-h)) (* 0.5 cell-w) (* 0.5 cell-h) 0 0 360)
+      (set! (.-fillStyle ctx) color)
+      (.fill ctx)
+      (set! (.-lineWidth ctx) 0)))
 (defn random-positions [w h n]
   (take n
         (shuffle
@@ -174,23 +133,6 @@
      :board board
      :clients [ws]}))
 
-#_(defn board-canvas [b w h]
-   (reagent/create-class
-    {:display-name "board-canvas"
-     :component-did-mount
-     (fn [this]
-      (let [node      (reagent/dom-node this)
-            canvas-el (dom/getFirstElementChild node)]
-        (reset! canvas canvas-el)
-        (draw-board b w h)))}
-      ;; :component-did-update
-      ;; (fn [this]
-        ;; (draw-board  b w h))
-    :reagent-render
-    (fn [b w h]
-      ;; [:div {:style canvas-wrapper-styles}
-      [:canvas#board {:width w :height h :style canvas-styles}])))
-
 (defn handle-message [evt]
   (let [data (read-string {:readers {'multisnakes.snake.Board snake/map->Board
                                      'multisnakes.snake.Snake snake/map->Snake}}
@@ -199,10 +141,10 @@
         id   (:game-id data)]
     (reset! board b)
     (swap! game-opts assoc :game-id id)
-    (reset! score (count (get-in b [:snake :positions])))
+    (reset! score (dec
+                   (count (get-in b [:snake :positions]))))
     (reset! game-id id)
     (reset! game-over? (snake/game-over? b))))
-    ;; (draw-board  b (:canvas-w @game-opts) (:canvas-h @game-opts))))
 
 (defn game-request [w h snake-count]
   {:type   :create-game
@@ -213,11 +155,6 @@
 (defn new-target-request [game-id]
   {:type :new-target
    :game-id game-id})
-
-;; (defn add-snake [game-id name]
-  ;; {:type :add-snake
-   ;; :snake-id name
-   ;; :game-id game-id})
 
 (defn remove-snake [game-id snake-id]
   {:type :remove-snake
@@ -235,40 +172,13 @@
 
     (. ws (addEventListener "message" handle-message))
     ws))
-#_(defn play-local [w h snake-count]
-    (let [out (async/chan)]
-      (go-loop [board (snake/create-board w h (random-snakes w h (int snake-count)))]
-      ;; (draw-board board (:width board) (:height board))
-        (>! out board)
-        (let [over? (snake/game-over? board)]
-          (when-not over?
-            (recur
-             (reduce
-              (fn [b s]
-                (if-not (snake/dead? (get-in b [:snakes s]) (snake/get-blocked-positions b (get-in b [:snakes s])))
-                  (let [dir (-> (snake/target-directions
-                                 (get-in b [:snakes s])
-                                 (:target-position b)
-                                 (snake/get-blocked-positions b (get-in b [:snakes s])))
-                                shuffle
-                                first)]
-                    (snake/play b s dir))
-                  b))
-              board
-              (keys (get-in board [:snakes])))))))
-      (go-loop [b (<! out)]
-        (when-not (nil? b)
-          (reset! board b)
-          (draw-board b 400 400)
-          (<! (async/timeout 50))
-          (recur (<! out))))))
 
 (defn start-ws-btn []
   [:button.btn.btn-primary
-   ;; {:on-click #(play-local (:width @game-opts) (:height @game-opts) (:snake-count @game-opts))
    {:on-click #(reset! ws (open-websocket ws-endpoint))
     :disabled (not= nil @ws)}
    "Create"])
+
 (defn start-game-btn []
   [:button.btn.btn-secondary
    {:on-click #(send-data @ws {:type :start-game
@@ -306,53 +216,61 @@
    :game-id game-id
    :snake-id snake-id})
 
-(defn gradient-text
-  [text color1 color2]
-  (let [text (if-not (string? text) (str text) text)]
-    [:span.gradient-text
-     (for [[color3 c] (with-color-interpolation text color1 color2)]
-       ^{:key (str "char-" color3)}
-       [:span {:style {:color color3}}
-        c])]))
+(defn remote-game-control-panel []
+  [:div#config-panel.col.collapse
+   {:class ""}
+   [:div.row>div.col
 
-(defn score-table
-  []
-  [:div.score-table
-   #_[:style
-      (g/css [:table.table {:width "80%"}
-              [:thead>tr>th {:font-size "1.1em"}
-               :text-transform :uppercase]
-              [:tbody
-               [:tr
-                [:td {:text-align :center}]]]])]
-   [:table.table.table-striped
-    [:thead
-     [:tr
-      [:th "la snake"]
-      [:th "puntos"]
-      [:th "muerta?"]]]
-    [:tbody
-     (doall
-       (for [[[c1 c2] [id snake]]
-             (map vector GRADIENTS
-                  (sort-by
-                   (fn [[i s]]
-                     (* -1
-                        (count (:positions s))))
-                   (:snakes @board)))]
-         [:tr {:key (str "row-" id)}
-          [:td (gradient-text id c1 c2)]
-          [:td (count (:positions snake))]
-          [:td (if (snake/dead?  snake (snake/get-blocked-positions @board snake )) "SI" "NO")]]))]]])
+    [score-table]
+    [:div.inputs
+     [text-input game-id "game id" true]
+     [:div.form-group
+      [:div.input-group
+       [:input.form-control
+        {:type :text
+         :value (get @game-opts :snake-name)
+         :placeholder "snake name"
+         :on-change #(reset!
+                      (reagent/cursor game-opts [:snake-name]) (-> % .-target .-value))}]
+       [:div.input-group-append
+        [:button.btn.btn-outline-warning
+         {:type :button
+          :on-click
+          (fn [e]
+            (let [{:keys [game-id snake-name]} @game-opts]
+              (send-data @ws (add-snake game-id snake-name))))}
+         "add snake"]]]]
+     [number-input (reagent/cursor game-opts [:width]) "width"]
+     [number-input (reagent/cursor game-opts [:height]) "height"]]
+    (when @game-over?
+      [:div {:style {:color "red"}} "SE KEMÓ TOKIO"])
+    [:div.buttons.btn-group
+     [start-ws-btn]
+     [start-game-btn]
+     [stop-ws-btn]
+     [reset-btn]
+     [new-target-btn]]]])
+
+(defn events-list []
+  [:div
+   [:h5 "events"]
+   [:ul.ul
+    (for [[i e] (map-indexed vector (get-in @board [:events]))]
+      ^{:key (str "event-" i)}
+      [:li (str "[" (:type e) "] - "  (:message e))])]])
 
 (defn ^:export main-component []
   [:div.container
    [:style
     (g/css
-     [:h1 {:text-transform :uppercase
+     [:h1 {:text-transform :capitalize
+           :font-variant   :small-caps
            :text-align     :center
+           :font-weight    900
+           :line-height    1.0
            :font-family    :sans-serif
-           :margin-bottom  "1em"}]
+           :margin-bottom  "0.3em"}]
+     [:div.show {:display :unset}]
      [:label {:text-transform :uppercase
               :margin-right   "2em"}]
      [:div.v-container
@@ -360,60 +278,25 @@
        :flex-direction  :column
        :align-content   :space-around
        :justify-content :space-around}]
-     [:canvas {:min-width "30em"}]
      [:div.h-container
       {:display         :flex
        :flex-direction  :row
        :align-content   :space-around
        :justify-content :space-around}]
-     [:button {:padding          "0.6em"
-               :text-transform   :uppercase
-               :border-radius    "0.5em"
-               :margin           "0.5em"
-               :border           "solid yellow 3px"
-               :background-color :white}
-      [:&:hover
-       {:background-color "yellow"
-        :border-color     :black
-        :font-weight      600}]])]
-   [:h1 "gusanito loco"]
-   
+     [:div.btn-group
+       {:margin :unset}
+       [:button.btn :a.btn
+        {:text-transform :uppercase}]])]
+   (when-not @game-type-selected?
+     [game-type-select-modal])
+   [:h1
+    "gusanoloco"]
    [:div.row
-    [:div#config-panel.col.collapse
-     {:class ""}
-     [score-table]
-     [:div.inputs
-      [text-input (reagent/cursor game-opts [:game-id]) "game id"]
-      [text-input (reagent/cursor game-opts [:snake-name])  "snake name"]
-      [:button.btn.btn-outline-warning
-       {:type     :button
-        :on-click (fn [e]
-                    (send-data @ws
-                               (add-snake
-                                (:game-id @game-opts)
-                                (:snake-name @game-opts))))}
-       "add snake"]
+    (condp = @game-type
+      :remote [remote-game-control-panel]
+      :local  [local-game-control-panel]
+      [:p "select game type"])
 
-      [number-input (reagent/cursor game-opts [:width]) "width"]
-      [number-input (reagent/cursor game-opts [:height]) "height"]
-      [number-input (reagent/cursor game-opts [:snake-count]) "snake count"]]
-     [:div.join
-      [:input {:on-change   #(reset! game-id (-> % .-target .-value))
-               :value       @game-id
-               :type        :text
-               :placeholder "Game ID"}]
-      [:button.btn.btn-outline-info
-       {:type     :button
-        :on-click #(reset! ws (join-game ws-endpoint))}
-       "Join game"]]
-     (when @game-over?
-       [:div {:style {:color "red"}} "SE KEMÓ TOKIO"])
-     [:div.buttons
-      [start-ws-btn]
-      [start-game-btn]
-      [stop-ws-btn]
-      [reset-btn]
-      [new-target-btn]]]
     [:div.col
      [:a.btn.btn-outline-danger.btn-block.mb-2
       {:href          "#config-panel"
@@ -422,10 +305,30 @@
        :aria-expanded false
        :aria-controls "config-panel"}
       "hide panel"]
-     [svg/svg-board @board]]]])
-     ;; [board-canvas @board 375 375]]]])
+     [svg/svg-board @board]
+     [:div.row>div.col
+      [events-list]]]]])
 
+(def routes
+  (reitit/router
+   [["/" {:controllers [{:start #(js/console.log "root route start")
+                         :stop  #(js/console.log "root route stopped")}]}]
+    ["/join/:game-id" {:controllers [{:params (fn [match] (get-in match [:path-params :game-id]))
+                                      :start  (fn [gid]
+                                                (js/console.log "starting join route for game " gid)
+                                                (reset! game-id gid)
+                                                (reset! ws (join-game ws-endpoint)))}]}]
+    ["/create" {:controllers [{:start (fn []
+                                        (reset! ws (open-websocket ws-endpoint)))}]}]]))
 (defn init! []
+  (rfe/start!
+   routes
+   (fn [match history]
+     (println match)
+     (println history)
+     (rfc/apply-controllers (get-in match [:data :controllers]) match))
+   nil)
+  ;; (a/init!)
   (reagent/render
    [main-component]
    (. js/document (getElementById "root"))))
@@ -433,4 +336,5 @@
 (defn ^:export main []
   (println "renderer process")
   (init!))
+
 

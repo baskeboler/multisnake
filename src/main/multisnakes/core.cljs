@@ -14,6 +14,16 @@
 
 (defonce ws-response-chan (chan 50))
 
+(defrecord RagingBonerEvent [snake-id timestamp message type])
+
+(defn create-event [{:keys [snake-id timestamp message type]
+                     :as   event-conf
+                     :or   {snake-id  nil
+                            timestamp (js/Date.)
+                            message   "NO MESSAGE"
+                            type      :unknown}}]
+  (map->RagingBonerEvent event-conf))
+
 (defn async-some [pred input-chan]
   (go-loop []
     (let [msg (<! input-chan)]
@@ -55,7 +65,7 @@
 (defn create-new-game-context [ws w h snake-count]
   (let [id     (apply str
                       (take 4 (str/getRandomString)))
-        snakes {} ;(random-snakes w h snake-count)
+        snakes {}
         board  (snake/create-board w h snakes)]
     {:game-id id
      :start   (js/Date.)
@@ -72,9 +82,8 @@
     (doall
      (doseq [ws (-> ctx :clients)
              :let [d (dissoc ctx :clients)]]
-       ;; (println d)
        (send-data ws d)))))
-                 
+
 (defn update-board [board])
 
 (defn get-blocked-positions [b snake]
@@ -83,7 +92,7 @@
 
 (defn start-game-updates [game-id]
   (go
-    (loop [_      (<! (timeout 100))]
+    (loop [_ (<! (timeout 100))]
       (send-game-updates game-id)
       (let [ctx     (get-context game-id)
             board   (:board ctx)
@@ -137,7 +146,11 @@
                                                      (get-in ctx [:board :width])
                                                      (get-in ctx [:board :height])
                                                      (get-in ctx [:board :snakes]))]
-                                     (assoc-in ctx [:board :target-position] new-target))))
+                                     (-> ctx
+                                         (assoc-in [:board :target-position] new-target)
+                                         (update-in [:board :events] conj
+                                                    {:type :new-target
+                                                     :message "NO MESSAGE "})))))
 
   nil)
 

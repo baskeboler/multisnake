@@ -1,2 +1,3 @@
-resources/**/*.js
+resources/*.js
+resources/public/js
 resources/**/manifest.edn

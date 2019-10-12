@@ -1,12 +1,18 @@
 (ns multisnakes.svg
-  (:require [thi.ng.color.core :as colors]
+  (:require [reagent.core :as r]
+            [thi.ng.color.core :as colors]
             [thi.ng.math.core :as math]
             [thi.ng.tweeny.core :as tw]
             [thi.ng.geom.core :as geom]
-            [multisnakes.snake :as snake]))
+            [thi.ng.geom.svg.core :as svg]
+            [multisnakes.snake :as snake]
+            [multisnakes.animations :refer [animation-pipeline effects-component]]))
 (def color-palette (repeatedly colors/random-rgb))
 (def gradients (map vec
                     (partition 2 color-palette)))
+
+
+
 (defn board-rect-renderer [board]
   (let  [cell-w (/ 200.0 (:width board))
          cell-h (/ 200.0 (:height board))]
@@ -22,9 +28,10 @@
     (fn [[x y] text color1 color2]
       [:text {:x (* x cell-w)
               :y (* y cell-h)
-              :style {:font-size "0.5em"}
-              :fill @(colors/as-css color1)
-              :stroke @(colors/as-css color2)}
+              :style {:font-size "0.5em"
+                      :font-weight 100}
+              :fill (colors/as-css color1)
+              :stroke (colors/as-css color2)}
        text])))
 
 (defn circle-renderer [board]
@@ -38,7 +45,6 @@
                 :fill @(colors/as-css color)}])))
 
 (defn with-color-interpolation [sequence color1 color2]
-  ;; (println sequence color1 color2)
   (let [len (count sequence)]
     (map-indexed
      #(vector
@@ -63,11 +69,16 @@
        [rect pos color])
      [text (snake/get-head snake) (:id snake) color1 color2]]))
 
-(defn svg [children]
-  [:svg {:viewBox "0 0 200 200"}
-   (doall
-    (for [c children]
-      c))])
+;; (defn svg [children]
+  ;; [:svg {:viewBox "0 0 200 200"}
+   ;; (doall
+    ;; (for [c children]
+      ;; c]]))
+(defrecord SVGTarget [x y r color]
+  svg/ISVGConvert
+  (svg/as-svg [this opts]
+    (svg/circle [x y] r {:fill @color})))
+
 
 (defn svg-board [board]
   (let [text (text-renderer board)
@@ -80,10 +91,11 @@
                              gradients
                              (vals (:snakes board)))]
         ^{:key (str "snake-svg-" (:id s))}
-         [svg-snake board s c1 c2]))
-     (let [[x y] (:target-position board)]
+        [svg-snake board s c1 c2]))
+     [effects-component]
+     (when-let [[x y] (:target-position board)]
        ^{:key :target-position}
-        [circ [x y] 0.5 colors/RED])]))
+       [circ [x y] 0.5 colors/RED])]))
 
 (defn explode-seq [{:keys [r color] :as start} t]
   (let [kf [[0 {:v
