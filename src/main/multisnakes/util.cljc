@@ -1,13 +1,13 @@
 (ns multisnakes.util
   (:require
    [cljs.core.async :as aync :refer [>! <! go go-loop chan]]
-   [multisnakes.colors :refer [GRADIENTS gradient-text]]
-   [multisnakes.snake :as snake]))
+   [multisnakes.colors :refer [GRADIENTS gradient-text animated-gradient-text]]
+   [multisnakes.snake :as snake]
+   [multisnakes.state :as state]))
 (defn event-value
   [^js/Event e]
   (let [^js/HTMLInputElement el (.-target e)]
     (.-value el)))
-
 
 (defn generic-input
   ([type cursor label readonly?]
@@ -38,16 +38,25 @@
     [:tbody
      (doall
       (for [[[c1 c2] [id snake]]
-            (map vector 
+            (map vector
                  GRADIENTS
                  (sort-by
                   (fn [[i s]]
                     (* -1
                        (count (:positions s))))
-                  (:snakes @board)))]
+                  @state/snakes))]
         [:tr {:key (str "row-" id)}
          [:td
-          [gradient-text id c1 c2]]
+          [animated-gradient-text id c1 c2 1000]]
          [:td (count (:positions snake))]
          [:td (if (snake/dead?  snake (snake/get-blocked-positions @board snake)) "SI" "NO")]]))]]])
 
+(def fake-names
+  (shuffle
+   ["pedro" "victor" "maria" "olivia"
+    "bonnie" "vicky" "leti" "julia"
+    "roberto" "andres" "juan" "pablo"
+    "jorge" "rosario" "fernando" "daniela" "daniel"
+    "edgardo" "alejandro" "adrian" "virginia"
+    "paula" "susana" "gimena" "mariana" "corina"
+    "laura" "gaston" "manuel" "francisco"]))

@@ -26,6 +26,7 @@
 (defonce game-id (reagent/cursor game-state [:game-id]))
 (def canvas (reagent/cursor game-state [:canvas]))
 (defonce board (reagent/cursor game-state [:board]))
+(defonce snakes (reagent/cursor board [:snakes]))
 (defonce game-opts
   (reagent/cursor game-state [:game-opts]))
 (defonce snake-name (reagent/cursor game-opts [:snake-name]))
