@@ -4,8 +4,8 @@
             [thi.ng.tweeny.core :as tw]
             [thi.ng.color.core :as c]
             [thi.ng.color.presets.brewer :as brewer]
-            [cljs.core.async :as async :refer [chan sliding-buffer <! >! go go-loop]]))
-            ;; [multi]))
+            [cljs.core.async :as async :refer [chan sliding-buffer <! >! go go-loop]]
+            [multisnakes.state :as state :refer [clock]]))
 
 (defonce animation-pipeline (atom []))
 
@@ -55,7 +55,6 @@
   (as-svg [this opts]
     (svg/circle [(:x this) (:y this)] (:r this) {:fill @(c/as-css (:color this))})))
 
-
 (defn enqueue-animation [anim]
   (swap! animation-pipeline conj anim))
 
@@ -70,7 +69,7 @@
                                :color (-> color
                                           (c/as-rgba)
                                           (c/adjust-alpha -1.0)
-                                          (c/as-css)
+                                          ;; (c/as-css)
                                           deref)}}]]]
     (map (comp
           map->SVGTarget
@@ -78,10 +77,10 @@
          (range frame-count))))
 
 (def current-fx-transducer (comp (map first)
-                              (map svg/as-svg)))
+                                 (map svg/as-svg)))
 
 (def next-frame-transducer (comp (map next-frame)
-                              (filter (comp is-complete? not))))
+                                 (filter (comp is-complete? not))))
 
 (defn init! []
   (println  "starting animation loop")
@@ -102,12 +101,29 @@
       (recur (<! (async/timeout 200))))))
 
 (defn ^:export effects-component []
-  
+
   (into [:g]
-        (for [[i some-fx] (map-indexed
-                           vector
-                           (into [] current-fx-transducer
-                                 @animation-pipeline))]
+        (for [[i some-fx] (vec
+                           (map-indexed
+                            vector
+                            (into [] current-fx-transducer
+                                  @animation-pipeline)))]
           ^{:key (str "fx-frame-" i)}
           [some-fx])))
+
+(defn now [] (.now js/Date))
+
+(defn tween
+  [dt start-value end-value]
+  (let [start-time (now)
+        done?      (atom false)
+        kf         [[0 {:v start-value}]
+                    [dt {:v end-value}]]]
+    (reagent.ratom/reaction
+     (if @done?
+       end-value
+       (let [elapsed (- @clock start-time)]
+         (if (> elapsed dt)
+           (do (reset! done? true) end-value)
+           (tw/at elapsed kf)))))))
 

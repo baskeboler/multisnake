@@ -69,11 +69,6 @@
        [rect pos color])
      [text (snake/get-head snake) (:id snake) color1 color2]]))
 
-;; (defn svg [children]
-  ;; [:svg {:viewBox "0 0 200 200"}
-   ;; (doall
-    ;; (for [c children]
-      ;; c]]))
 (defrecord SVGTarget [x y r color]
   svg/ISVGConvert
   (svg/as-svg [this opts]

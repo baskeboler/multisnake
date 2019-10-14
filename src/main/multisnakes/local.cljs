@@ -6,8 +6,8 @@
                                                  snake-name board-width board-height]]
             [multisnakes.snake :as snake]
             [multisnakes.util :as util :refer [text-input number-input score-table]]
-            [multisnakes.colors :refer [COLORS GRADIENTS gradient-text text-animation-kfs animated-gradient-text]]))
-
+            [multisnakes.colors :refer [COLORS GRADIENTS gradient-text text-animation-kfs animated-gradient-text]]
+            [multisnakes.animations :as a]))
 (defn create-local-game-btn []
   [:button.btn.btn-sm.btn-primary
    {:on-click (fn [evt]
@@ -25,7 +25,7 @@
 
 (defn local-new-target-btn []
   [:button.btn.btn-sm.btn-outline-info
-   {:on-click #(swap! board
+   {:on-click #(reagent/rswap! board
                       (fn [b]
                         (let [new-target (snake/new-target
                                           (:width b)
@@ -51,8 +51,7 @@
       [:div#config-panel.col.collapse
        {:class ""}
        [:div.row>div.col
-
-        [score-table board]
+        ;; [:div {:style {:color @(thi.ng.color.core/as-css @(a/tween 5000 thi.ng.color.core/PINK thi.ng.color.core/GREEN))}} "clock: " @state/clock]
         [:div.inputs
      ;; [text-input game-id "game id" true]
          [:div.form-group
@@ -69,7 +68,7 @@
              {:type :button
               :on-click
               (fn [e]
-                (swap! board update-in [:snakes]
+                (reagent/rswap! board update-in [:snakes]
                        (fn [snakes]
                          (let [w        @board-width  ; (get-in @board [:width])
                                h        @board-height ; (get-in @board [:height])
@@ -78,6 +77,7 @@
                            (-> snakes
                                (assoc snake-id (snake/create-snake [(snake/random-position w h taken)] snake-id)))))))}
              "add snake"]]]]
+         [score-table board]
          [number-input (reagent/cursor game-opts [:width]) "width"]
          [number-input (reagent/cursor game-opts [:height]) "height"]]
         (when @game-over?

@@ -9,6 +9,7 @@
          :game-id                nil
          :canvas                 nil
          :board                  nil
+         :tweens                 {}
          :show-select-type-modal true
          :game-opts              {:width       25
                                   :height      25
@@ -32,3 +33,20 @@
 (defonce snake-name (reagent/cursor game-opts [:snake-name]))
 (defonce board-width (reagent/cursor board [:width]))
 (defonce board-height (reagent/cursor board [:height]))
+
+(defonce clock
+  (let [callback-added? (atom false)
+        callback #(reset! callback-added? false)]
+    (reagent.ratom/reaction
+     (when-not @callback-added?
+       (reset! callback-added? true)
+       (reagent.core/next-tick callback))
+     (.now js/Date))))
+
+(defonce tweens (reagent/cursor game-state [:tweens]))
+
+(defn get-tween [tween-id]
+  (get @tweens tween-id))
+
+(defn add-tween [tween-id tween]
+  (swap! tweens assoc tween-id tween))

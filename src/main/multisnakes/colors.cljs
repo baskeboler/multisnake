@@ -9,7 +9,6 @@
   (let [len (count sequence)]
     (map-indexed
      #(vector
-       ;; @(color/as-css
          (color/as-css
            (math/mix color1 color2 (/ %1 len)))
        %2)

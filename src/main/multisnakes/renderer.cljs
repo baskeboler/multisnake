@@ -259,8 +259,11 @@
       ^{:key (str "event-" i)}
       [:li (str "[" (:type e) "] - "  (:message e))])]])
 
+(state/add-tween :opacity-tween (a/tween 1000 0.0 1.0))
+(state/add-tween :title-tween (a/tween 2000 3.0 1.0))
+
 (defn ^:export main-component []
-  [:div.container
+  [:div.container {:style {:opacity @(state/get-tween :opacity-tween)}}
    [:style
     (g/css
      [:h1 {:text-transform :capitalize
@@ -289,7 +292,7 @@
         {:text-transform :uppercase}]])]
    (when-not @game-type-selected?
      [game-type-select-modal])
-   [:h1
+   [:h1 {:style {:transform (str "scale(" @(state/get-tween :title-tween) ")")}}
     "gusanoloco"]
    [:div.row
     (condp = @game-type
