@@ -117,8 +117,8 @@
   [dt start-value end-value]
   (let [start-time (now)
         done?      (atom false)
-        kf         [[0 {:v start-value}]
-                    [dt {:v end-value}]]]
+        kf         [[0 {:v start-value :f (tw/mix-exp 0.5)}]
+                    [dt {:v end-value :f (tw/mix-exp 1.5)}]]]
     (reagent.ratom/reaction
      (if @done?
        end-value
@@ -127,3 +127,25 @@
            (do (reset! done? true) end-value)
            (tw/at elapsed kf)))))))
 
+(defn tween2
+  [& {:keys [dt start-value end-value delay]
+      :or   {dt          1.0
+             start-value 0.0
+             end-value   1.0
+             delay       0.0}
+      :as opts}]
+  (println dt delay start-value end-value)
+  (let [start-time (now)
+        done?      (atom false)
+        kf         [[0 {:v start-value :f (tw/mix-exp 0.5)}]
+                    [delay {:v start-value :f (tw/mix-exp 0.5)}]
+                    [(+ delay dt) {:v end-value :f (tw/mix-exp 0.5)}]]]
+    (reagent.ratom/reaction
+     (if @done?
+       end-value
+       (let [elapsed (- @clock start-time)]
+         (if (> elapsed (+ dt delay))
+           (do
+             (reset! done? true)
+             end-value)
+           (tw/at elapsed kf)))))))

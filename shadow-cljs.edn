@@ -28,7 +28,9 @@
   [day8.re-frame/tracing "0.5.1"]
   ;; [stylefy "1.10.1"]
   [com.rpl/specter "1.1.2"]
+  [astar-search "0.2"]
   ;; [bardo "LATEST"]
+  [tailrecursion/cljs-priority-map "1.2.1"]
   [com.stuartsierra/component "LATEST"]]
  
  :nrepl {:port       9999

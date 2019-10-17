@@ -1,5 +1,6 @@
-(ns multisnakes.snake)
-
+(ns multisnakes.snake
+  (:require [thi.ng.math.core :as math]
+            [astar.core :as astar]))
 (def directions #{:up :down :left :right})
 
 (def direction-delta
@@ -25,12 +26,26 @@
 
   ([b snake] (get-blocked-positions b snake 1)))
 
+(declare abs)
+
 (defprotocol PSnake
   (move [this direction grow?])
   (hit? [this position])
   (dead? [this blocked-positions])
   (get-head [this])
   (get-tail [this]))
+
+(defprotocol PGraph
+  (graph [this snake-id pos])
+  (dist [this from to])
+  (heuristic-dist [this target-pos])
+  (route [this snake-id from to]))
+
+(defprotocol RoutePlanner
+  (plan-route [this snake-id])
+  (route-planned? [this snake-id])
+  (planned-route-valid? [this snake-id])
+  (step-route [this snake-id]))
 
 (defprotocol PReset
   (reset [this]))
@@ -112,9 +127,9 @@
 (defn update-board-target-fn [need-new-target?]
   (fn [board]
     (if need-new-target?
-        (-> board
-            (assoc :previous-target (:target-position board)
-                   :target-position (new-target (:width board) (:height board) (:snakes board))))
+      (-> board
+          (assoc :previous-target (:target-position board)
+                 :target-position (new-target (:width board) (:height board) (:snakes board))))
       board)))
 
 (defn event [type snake-id text]
@@ -223,8 +238,9 @@
 
 (defn neighbours [pos]
   (let [[x y] pos]
-    (for [i [1 -1]
-          j [1 -1]]
+    (for [i [1 0 -1]
+          j [1 0 -1]
+          :when (not= (abs i) (abs j))]
       [(+ i x) (+ j y)])))
 
 (def MAX-AHEAD 50)
@@ -332,30 +348,123 @@
              :when (empty? ((set taken) [i j]))] [i j])
        shuffle
        first))
+(defn pos->direction [from to]
+  (let [[x1 y1] from
+        [x2 y2] to
+        [dx dy]    [(- x2 x1) (- y2 y1)]]
+    (cond
+      (zero? dx) (if (neg? dy) :up :down)
+      (zero? dy) (if (neg? dx) :left :right))))
 
 (defn play-round [board]
   (assert (= Board (type board)))
   (when-not  (nil? board)
     ;; (if-not (game-over? board)
-      (let [snake-ids (vec 
-                        (shuffle 
-                          (keys (:snakes board))))]
-        (reduce
-         (fn [result-board snake-id]
-           (let [snake          (get-in result-board [:snakes snake-id])
-                 snake-is-dead? (dead? snake (get-blocked-positions result-board snake))
-                 play-direction (if-not snake-is-dead?
-                                  (->> (target-directions snake result-board)
-                                       shuffle
-                                       first)
-                                  (-> directions shuffle first))
-                 play-direction (if (nil? play-direction) (-> directions shuffle first) play-direction)]
-             (if-not snake-is-dead?
-               (play result-board snake-id play-direction)
-               result-board)))
-         board
-         snake-ids))   
+    (let [snake-ids (vec
+                     (shuffle
+                      (keys (:snakes board))))]
+      (reduce
+       (fn [result-board snake-id]
+         (let [snake          (get-in result-board [:snakes snake-id])
+               snake-is-dead? (dead? snake (get-blocked-positions result-board snake))]
+                 ;; r              (route result-board (get-head snake) (:target-position result-board))
+                 ;; play-direction (if-not snake-is-dead?
+                                  ;; (if-not (empty? r)
+                                  ;; (->> r
+                                       ;; first
+                                       ;; (pos->direction (get-head snake))
+                                  ;; (->>
+                                   ;; (target-directions snake result-board)
+                                   ;; shuffle
+                                   ;; first
+                                  ;; (-> directions shuffle first))
+                 ;; play-direction (if (nil? play-direction) (-> directions shuffle first) play-direction)]
+             ;; (println "route :" r)
+           (if-not snake-is-dead?
+             (if-let [new-board (step-route result-board snake-id)]
+               new-board
+               (let [play-direction (->> (target-directions snake result-board)
+                                         shuffle
+                                         first)
+                     play-direction (if (nil? play-direction) (-> directions shuffle first) play-direction)]
+                 (println "choosing least bad")
+                 (play result-board snake-id play-direction)))
+             result-board)))
+       board
+       snake-ids)
       #_(do
-         (println "Game Over, no more rounds")
-         board)))
+          (println "Game Over, no more rounds")
+          board))))
     ;; board))
+
+
+;; (defprotocol PGraph
+  ;; (graph [this pos])
+  ;; (dist [this from to])
+  ;; (heuristic-dist [this target-pos])
+  ;; (route [this from to]))
+
+(defn abs [x]
+  (if (neg? x) (* -1 x) x))
+
+(defn get-graph [board snake-id pos]
+  (let [snake (get-in board [:snakes snake-id]) 
+        blocked (into #{} 
+                      (concat (:positions snake)
+                              (get-blocked-positions board snake)))]
+    (->> (neighbours pos)
+         (filter (complement blocked)))))
+
+(extend-protocol PGraph
+  Board
+  (graph [this snake-id pos]
+    (get-graph this snake-id pos))
+
+  (dist [this from to]
+    (let [[x1 y1] from
+          [x2 y2] to]
+      (+ (abs (- x2 x1)) (abs (- y2 y1)))))
+  (heuristic-dist [this target-pos] 0)
+  (route [this snake-id from to]
+    (let [res (astar/route (partial graph this snake-id) (partial dist this) (partial heuristic-dist this) from to)]
+      (println res)
+      res)))
+
+(defn execute-route [snake-id  board]
+  (let [snake    (get-in board [:snakes snake-id])
+        r        (:planned-route snake)
+        next-pos (first r)
+        next-dir (pos->direction (get-head snake) next-pos)]
+    (-> (play board snake-id next-dir)
+        (update-in [:snakes snake-id :planned-route] rest))))
+
+(extend-protocol RoutePlanner
+  Board
+  (plan-route [this snake-id]
+    (let [snake (get-in this [:snakes snake-id])
+          r     (route this snake-id (get-head snake) (:target-position this))]
+      (-> this
+          (assoc-in [:snakes snake-id :planned-route] r)
+          (assoc-in [:snakes snake-id :planned-route-target] (:target-position this)))))
+  (route-planned? [this snake-id]
+    (not-empty
+     (get-in this [:snakes snake-id :planned-route])))
+            
+  (planned-route-valid? [this snake-id]
+    (if (and
+         (route-planned? this snake-id)
+         (= (get-in this [:snakes snake-id :planned-route-target])
+            (get this :target-position)))
+      (let [snake (get-in this [:snakes snake-id])
+            blocked (into #{}
+                          (get-blocked-positions this snake))
+            r       (get-in snake [ :planned-route])]
+        (not-any?  blocked r))
+      false))
+  (step-route [this snake-id]
+    (if (planned-route-valid? this snake-id)
+      (execute-route snake-id this)
+      (let [new-this  (plan-route this snake-id)]
+            ;; new-board (assoc-in this [:snakes (:id new-this)] new-this)]
+        (when  (planned-route-valid? new-this snake-id)
+          (execute-route snake-id new-this))))))

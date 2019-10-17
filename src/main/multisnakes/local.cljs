@@ -15,13 +15,13 @@
    "Create"])
 
 (defn start-local-game []
-  (go
-    (loop [_ (<! (timeout 10))]
-      (let [over? (snake/game-over? @board)]
-        (when-not (or false over?)
-          (swap! board
-                 #(snake/play-round %))
-          (recur (<! (timeout 1))))))))
+    (go
+      (loop [_ (<! (timeout 10))]
+        (let [over? (snake/game-over? @board)]
+          (when-not (or false over?)
+            (swap! board
+                   #(snake/play-round %))
+            (recur (<! (timeout 50))))))))
 
 (defn local-new-target-btn []
   [:button.btn.btn-sm.btn-outline-info
@@ -51,9 +51,7 @@
       [:div#config-panel.col.collapse
        {:class ""}
        [:div.row>div.col
-        ;; [:div {:style {:color @(thi.ng.color.core/as-css @(a/tween 5000 thi.ng.color.core/PINK thi.ng.color.core/GREEN))}} "clock: " @state/clock]
         [:div.inputs
-     ;; [text-input game-id "game id" true]
          [:div.form-group
           [:div.input-group
            [:input.form-control

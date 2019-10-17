@@ -40,8 +40,10 @@
                     :border     "solid 1px pink"})
 
 (defn game-type-select-modal []
-  [:div.modal.fade
-   {:class (when-not @game-type-selected? "show")
+  [:div
+   {:class ["modal"
+            "fade"
+            (when-not @game-type-selected? "show")]
     :role :dialog}
    [:div.modal-dialog.modal-dialog-centered>div.modal-content
     [:div.modal-header
@@ -53,11 +55,11 @@
         [:label "game type"]
         [:div.btn-group.btn-group-toggle
           ;; {:data-toggle "buttons"}
-         (doall
+         ;; (doall
           (for [opt [{:label "Remote" :value :remote}
                      {:label "Local" :value :local}]]
             ^{:key (str "lbl-opt-" (name (:value opt)))}
-            [:label.btn.btn-secondary
+            [:label.btn.btn-lg.btn-outline-secondary.mr-0
              {:class (when (= (:value opt) @game-type) "active")}
              [:input (merge
                       {:type :radio
@@ -66,7 +68,7 @@
                        :on-click #(reset! game-type (:value opt))}
                       (when (= (:value opt) @game-type)
                         {:checked ""}))]
-             (:label opt)]))]]]]]
+             (:label opt)])]]]]]
     [:div.modal-footer
      [:button.btn.btn-primary
       "Select"]]]])
@@ -96,14 +98,6 @@
                      :time   time}}]]]
     (map #(vector % (tw/at % kf)) (range 30))))
 
-#_(defn draw-target
-    [ctx pos cell-w cell-h color]
-    (let [[x y] pos]
-      (.beginPath ctx)
-      (.ellipse ctx (+ (* 0.5 cell-w) (* x cell-w)) (+ (* 0.5 cell-h) (* y cell-h)) (* 0.5 cell-w) (* 0.5 cell-h) 0 0 360)
-      (set! (.-fillStyle ctx) color)
-      (.fill ctx)
-      (set! (.-lineWidth ctx) 0)))
 (defn random-positions [w h n]
   (take n
         (shuffle
@@ -259,11 +253,17 @@
       ^{:key (str "event-" i)}
       [:li (str "[" (:type e) "] - "  (:message e))])]])
 
-(state/add-tween :opacity-tween (a/tween 1000 0.0 1.0))
-(state/add-tween :title-tween (a/tween 2000 3.0 1.0))
-
+;; (state/add-tween :opacity-tween (a/tween 700 0.0 1.0))
+;; (state/add-tween :title-tween (a/tween 1000 10.0 1.0))
+(state/add-tween :title
+                 (a/tween2
+                   :dt 1000
+                   :start-value {:opacity 0.0 :scale 10.0}
+                   :end-value {:opacity 1.0 :scale 1.0}))
 (defn ^:export main-component []
-  [:div.container {:style {:opacity @(state/get-tween :opacity-tween)}}
+  [:div.container {:style {:opacity @(reagent/cursor
+                                      (state/get-tween :title)
+                                      [:opacity])}}
    [:style
     (g/css
      [:h1 {:text-transform :capitalize
@@ -287,13 +287,14 @@
        :align-content   :space-around
        :justify-content :space-around}]
      [:div.btn-group
-       {:margin :unset}
-       [:button.btn :a.btn
+      {:margin :unset}
+      [:button.btn :a.btn
         {:text-transform :uppercase}]])]
    (when-not @game-type-selected?
      [game-type-select-modal])
-   [:h1 {:style {:transform (str "scale(" @(state/get-tween :title-tween) ")")}}
-    "gusanoloco"]
+   [:h1 {:style {:transform (str "scale(" @(reagent/cursor (state/get-tween :title) [:scale]) ")")}}
+    [animated-gradient-text
+     "gusanoloco" color/RED color/BLUE 5000]]
    [:div.row
     (condp = @game-type
       :remote [remote-game-control-panel]
